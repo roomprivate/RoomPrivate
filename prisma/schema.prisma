@@ -1,0 +1,23 @@
+// This is your Prisma schema file
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Room {
+  id                String   @id @default(uuid())
+  name              String
+  description       String?
+  encryptedPassword String?
+  ownerId          String
+  members          String   @default("{}")
+  roles            String   @default("[]")
+  encryptedRoomKey String
+  maxMembers       Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}

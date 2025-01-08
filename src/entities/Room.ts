@@ -1,21 +1,12 @@
-import { Entity, Column, PrimaryColumn } from 'typeorm';
 import { v4 as uuidv4 } from 'uuid';
 import * as CryptoJS from 'crypto-js';
 import { UserIdentifier } from '../utils/userIdentifier';
 import { generateRoomName } from '../utils/wordLists';
 
-export enum Permission {
-    ALL = 'all',
-    CHAT = 'chat',
-    VIEW = 'view',
-    MANAGE_ROLES = 'manage_roles',
-    KICK_USER = 'kick_user',
-    BAN_USER = 'ban_user'
-}
-
 export interface RoomMember {
     userId: string;
     roles: string[];
+    username?: string;
 }
 
 export interface Role {
@@ -26,34 +17,26 @@ export interface Role {
     position?: number;
 }
 
-@Entity()
+export enum Permission {
+    CHAT = "CHAT",
+    VIEW = "VIEW",
+    KICK = "KICK",
+    BAN = "BAN",
+    MANAGE_ROLES = "MANAGE_ROLES",
+    MANAGE_MESSAGES = "MANAGE_MESSAGES",
+    ALL = "ALL"
+}
+
 export class Room {
-    @PrimaryColumn()
-    id!: string;
-
-    @Column()
-    name!: string;
-
-    @Column({ nullable: true })
+    id: string;
+    name: string;
     description?: string;
-
-    @Column({ nullable: true })
     encryptedPassword?: string;
-
-    @Column()
-    ownerId!: string;
-
-    @Column('simple-json')
-    members: { [userId: string]: RoomMember } = {};
-
-    @Column('simple-json')
-    roles: Role[] = [];
-
-    @Column()
-    encryptedRoomKey!: string;
-
-    @Column({ default: 0 })
-    maxMembers: number = 0;
+    ownerId: string;
+    members: { [userId: string]: RoomMember };
+    roles: Role[];
+    encryptedRoomKey: string;
+    maxMembers: number;
 
     constructor(
         id: string,
@@ -72,7 +55,6 @@ export class Room {
         this.maxMembers = maxMembers;
         this.encryptedPassword = encryptedPassword;
         
-        // Initialize roles
         this.roles = [
             {
                 id: 'owner',
@@ -90,11 +72,10 @@ export class Room {
             }
         ];
 
-        // Initialize empty members
         this.members = {};
     }
 
-    static createRoom(
+    static async createRoom(
         hasPassword: boolean, 
         password?: string, 
         description?: string, 
@@ -102,15 +83,17 @@ export class Room {
         ownerIp: string = '',
         ownerUsername: string = '',
         ownerPersistentKey?: string
-    ): Room {
-        const id = Buffer.from(uuidv4()).toString('base64');
+    ): Promise<Room> {
+        const id = uuidv4();
         const name = generateRoomName();
-        const encryptedRoomKey = CryptoJS.lib.WordArray.random(256/8).toString();
+        const roomKey = CryptoJS.lib.WordArray.random(256/8);
+        const encryptedRoomKey = roomKey.toString();
+        
         const encryptedPassword = hasPassword && password 
-            ? CryptoJS.AES.encrypt(password, process.env.SERVER_SECRET || 'default-secret').toString()
+            ? CryptoJS.AES.encrypt(password, roomKey).toString()
             : undefined;
             
-        const ownerId = UserIdentifier.generateUserId(ownerUsername, ownerIp, ownerPersistentKey);
+        const ownerId = await UserIdentifier.generateUserId(ownerUsername, ownerIp, ownerPersistentKey);
 
         return new Room(
             id,
@@ -128,33 +111,34 @@ export class Room {
     }
 
     validatePassword(password: string): boolean {
-        return this.encryptedPassword === password;
+        if (!this.encryptedPassword) return true;
+        try {
+            const decrypted = CryptoJS.AES.decrypt(
+                this.encryptedPassword,
+                this.encryptedRoomKey
+            ).toString(CryptoJS.enc.Utf8);
+            return decrypted === password;
+        } catch {
+            return false;
+        }
     }
 
-    addMember(userId: string): boolean {
+    addMember(userId: string, username?: string): boolean {
         if (this.maxMembers > 0 && Object.keys(this.members).length >= this.maxMembers) {
             return false;
         }
-        if (!this.members[userId]) {
-            this.members[userId] = {
-                userId,
-                roles: ['member']
-            };
-        }
+        this.members[userId] = { userId, roles: ['member'], username };
         return true;
     }
 
     removeMember(userId: string): void {
-        if (userId === this.ownerId) return; // Don't remove owner
         delete this.members[userId];
     }
 
     getMemberRoles(userId: string): Role[] {
-        const memberRoles = this.members[userId]?.roles || [];
-        return this.roles.filter(role => 
-            memberRoles.includes(role.id) || 
-            (role.id === 'owner' && userId === this.ownerId)
-        );
+        const member = this.members[userId];
+        if (!member) return [];
+        return this.roles.filter(role => member.roles.includes(role.id));
     }
 
     getMemberList(): string[] {
@@ -179,7 +163,6 @@ export class Room {
             position
         };
         this.roles.push(role);
-        this.roles.sort((a, b) => (b.position || 0) - (a.position || 0));
         return role;
     }
 
@@ -188,20 +171,15 @@ export class Room {
         if (!member) return false;
         if (!member.roles.includes(roleId)) {
             member.roles.push(roleId);
-            return true;
         }
-        return false;
+        return true;
     }
 
     removeRole(userId: string, roleId: string): boolean {
         const member = this.members[userId];
         if (!member) return false;
-        const index = member.roles.indexOf(roleId);
-        if (index > -1 && roleId !== 'owner') {
-            member.roles.splice(index, 1);
-            return true;
-        }
-        return false;
+        member.roles = member.roles.filter(id => id !== roleId);
+        return true;
     }
 
     toJSON() {

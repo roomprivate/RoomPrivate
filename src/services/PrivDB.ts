@@ -1,142 +1,121 @@
-import { DataSource } from 'typeorm';
+import { PrismaClient } from '@prisma/client';
 import { Room } from '../entities/Room';
 import * as CryptoJS from 'crypto-js';
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
+import { RoomMember, Role } from '../entities/Room';
 
 export class PrivDB {
     private static instance: PrivDB;
-    private dataSource: DataSource;
+    private prisma: PrismaClient;
     private readonly encryptionKey: string;
     private readonly ivPrefix: string;
 
     private constructor() {
-        // Generate a strong encryption key from environment or create a new one
-        this.encryptionKey = process.env.DB_ENCRYPTION_KEY || CryptoJS.lib.WordArray.random(256/8).toString();
-        // Use a unique prefix for this server instance
+        if (!process.env.DB_ENCRYPTION_KEY) {
+            throw new Error('DB_ENCRYPTION_KEY environment variable is not set');
+        }
+        this.encryptionKey = process.env.DB_ENCRYPTION_KEY;
         this.ivPrefix = uuidv4();
-        
-        this.dataSource = new DataSource({
-            type: 'better-sqlite3',
-            database: 'rooms.db',
-            entities: [Room],
-            synchronize: true,
-            logging: false
-        });
+        this.prisma = new PrismaClient();
+        logger.info('PrivDB initialized with encryption key');
     }
 
     static async getInstance(): Promise<PrivDB> {
         if (!PrivDB.instance) {
             PrivDB.instance = new PrivDB();
-            await PrivDB.instance.dataSource.initialize();
         }
         return PrivDB.instance;
     }
 
-    private generateIV(id: string): string {
-        // Generate a deterministic IV for each record using the server prefix
-        return CryptoJS.SHA256(this.ivPrefix + id).toString().substring(0, 32);
+    generateIV(id: string): string {
+        return CryptoJS.SHA256(this.ivPrefix + id).toString().slice(0, 32);
     }
 
-    private encryptField(value: any, id: string): string {
-        if (value === null || value === undefined) return '';
-        
+    encryptField(value: any, id: string): string {
+        if (!this.encryptionKey) {
+            throw new Error('No encryption key registered');
+        }
         const iv = this.generateIV(id);
         const valueStr = typeof value === 'string' ? value : JSON.stringify(value);
-        
-        // Use AES-256-CBC with PKCS7 padding
-        const encrypted = CryptoJS.AES.encrypt(valueStr, this.encryptionKey, {
-            iv: CryptoJS.enc.Hex.parse(iv),
-            padding: CryptoJS.pad.Pkcs7,
-            mode: CryptoJS.mode.CBC
-        });
-        
-        return encrypted.toString();
+        return CryptoJS.AES.encrypt(valueStr, this.encryptionKey, {
+            iv: CryptoJS.enc.Hex.parse(iv)
+        }).toString();
     }
 
-    private decryptField(encrypted: string, id: string): any {
-        if (!encrypted) return null;
-        
+    decryptField(encrypted: string, id: string): any {
+        if (!this.encryptionKey) {
+            throw new Error('No encryption key registered');
+        }
+        const iv = this.generateIV(id);
+        const decrypted = CryptoJS.AES.decrypt(encrypted, this.encryptionKey, {
+            iv: CryptoJS.enc.Hex.parse(iv)
+        }).toString(CryptoJS.enc.Utf8);
         try {
-            const iv = this.generateIV(id);
-            
-            const decrypted = CryptoJS.AES.decrypt(encrypted, this.encryptionKey, {
-                iv: CryptoJS.enc.Hex.parse(iv),
-                padding: CryptoJS.pad.Pkcs7,
-                mode: CryptoJS.mode.CBC
-            });
-            
-            const decryptedStr = decrypted.toString(CryptoJS.enc.Utf8);
-            
-            try {
-                return JSON.parse(decryptedStr);
-            } catch {
-                return decryptedStr;
-            }
-        } catch (error) {
-            logger.error('Decryption failed:', error);
-            return null;
+            return JSON.parse(decrypted);
+        } catch {
+            return decrypted;
         }
     }
 
-    private encryptRoom(room: Room): Room {
-        const encryptedRoom = new Room(
-            room.id,
-            this.encryptField(room.name, room.id) || '',  
-            room.ownerId,
-            room.encryptedRoomKey,
-            this.encryptField(room.description, room.id) || '',  
-            room.maxMembers,
-            room.encryptedPassword || undefined  
-        );
-
-        // Encrypt members and roles
-        encryptedRoom.members = JSON.parse(this.encryptField(room.members, room.id + '_members') || '{}');
-        encryptedRoom.roles = JSON.parse(this.encryptField(room.roles, room.id + '_roles') || '[]');
-
-        return encryptedRoom;
+    serializeRoom(room: Room): any {
+        if (!room) {
+            throw new Error('Cannot serialize null room');
+        }
+        try {
+            return {
+                id: room.id,
+                name: room.name,
+                description: room.description,
+                encryptedPassword: room.encryptedPassword,
+                ownerId: room.ownerId,
+                members: JSON.stringify(room.members || {}),
+                roles: JSON.stringify(room.roles || []),
+                encryptedRoomKey: room.encryptedRoomKey,
+                maxMembers: room.maxMembers
+            };
+        } catch (error) {
+            logger.error('Error serializing room:', error);
+            throw error;
+        }
     }
 
-    private decryptRoom(room: Room): Room {
-        if (!room) return room;
-
-        // First decrypt all fields
-        const decryptedName = this.decryptField(room.name, room.id) || '';
-        const decryptedDesc = room.description ? this.decryptField(room.description, room.id) : undefined;
-        const decryptedMembers = this.decryptField(JSON.stringify(room.members), room.id + '_members') || '{}';
-        const decryptedRoles = this.decryptField(JSON.stringify(room.roles), room.id + '_roles') || '[]';
-
-        // Create new room with decrypted values
-        const decryptedRoom = new Room(
-            room.id,
-            decryptedName,
-            room.ownerId,
-            room.encryptedRoomKey,
-            decryptedDesc,
-            room.maxMembers,
-            room.encryptedPassword
-        );
-
-        // Set complex objects after parsing
-        decryptedRoom.members = JSON.parse(decryptedMembers);
-        decryptedRoom.roles = JSON.parse(decryptedRoles);
-
-        return decryptedRoom;
+    deserializeRoom(dbRoom: any): Room {
+        if (!dbRoom) {
+            throw new Error('Cannot deserialize null room data');
+        }
+        try {
+            const room = new Room(
+                dbRoom.id,
+                dbRoom.name,
+                dbRoom.ownerId,
+                dbRoom.encryptedRoomKey,
+                dbRoom.description,
+                dbRoom.maxMembers,
+                dbRoom.encryptedPassword
+            );
+            room.members = JSON.parse(dbRoom.members || '{}') as { [userId: string]: RoomMember };
+            room.roles = JSON.parse(dbRoom.roles || '[]') as Role[];
+            return room;
+        } catch (error) {
+            logger.error('Error deserializing room:', { roomId: dbRoom?.id, error });
+            throw error;
+        }
     }
 
     async createRoom(
-        hasPassword: boolean, 
-        password: string | undefined, 
-        description?: string, 
+        hasPassword: boolean,
+        password: string | undefined,
+        description?: string,
         maxMembers: number = 0,
         ownerIp: string = '',
         ownerUsername: string = '',
         ownerPersistentKey?: string
     ): Promise<Room | null> {
         try {
-            const room = Room.createRoom(
+            const room = await Room.createRoom(
                 hasPassword,
-                hasPassword && password ? password : '',  
+                hasPassword && password ? password : '',
                 description,
                 maxMembers,
                 ownerIp,
@@ -144,77 +123,90 @@ export class PrivDB {
                 ownerPersistentKey
             );
 
-            const encryptedRoom = this.encryptRoom(room);
-            const savedRoom = await this.dataSource.getRepository(Room).save(encryptedRoom);
-            
-            logger.info('Room created in database', { 
-                roomId: savedRoom.id, 
+            const serializedRoom = this.serializeRoom(room);
+            const savedRoom = await this.prisma.room.create({
+                data: serializedRoom
+            });
+
+            logger.info('Room created in database', {
+                roomId: savedRoom.id,
                 roomName: savedRoom.name,
                 hasPassword: hasPassword,
                 maxMembers: maxMembers
             });
 
-            return this.decryptRoom(savedRoom);
+            return this.deserializeRoom(savedRoom);
         } catch (error) {
-            logger.error('Failed to create room', {
-                error: error instanceof Error ? error.message : 'Unknown error',
-                hasPassword,
-                maxMembers
-            });
+            logger.error('Error creating room:', error);
             return null;
         }
     }
 
     async validateRoom(roomId: string, password?: string): Promise<{ valid: boolean; room?: Room }> {
         try {
-            const room = await this.dataSource.getRepository(Room).findOne({ where: { id: roomId } });
-            
+            const room = await this.getRoom(roomId);
             if (!room) {
                 logger.warn('Room not found during validation', { roomId });
                 return { valid: false };
             }
-            
-            const decryptedRoom = this.decryptRoom(room);
-            
-            if (password) {
-                const isValid = decryptedRoom.validatePassword(password);
-                logger.info('Room password validation', { 
-                    roomId, 
-                    valid: isValid 
-                });
-                return { valid: isValid, room: isValid ? decryptedRoom : undefined };
+
+            if (room.hasPassword() && !room.validatePassword(password || '')) {
+                logger.warn('Invalid password for room', { roomId });
+                return { valid: false };
             }
-            
-            logger.info('Room validated successfully', { roomId });
-            return { valid: true, room: decryptedRoom };
+
+            return { valid: true, room };
         } catch (error) {
-            logger.error('Error validating room', {
-                roomId,
-                error: error instanceof Error ? error.message : 'Unknown error'
-            });
-            throw error;
+            logger.error('Error validating room:', { roomId, error });
+            return { valid: false };
         }
     }
 
     async getRoom(id: string): Promise<Room | null> {
-        const repository = this.dataSource.getRepository(Room);
-        const room = await repository.findOne({ where: { id } });
-        return room ? this.decryptRoom(room) : null;
+        try {
+            const room = await this.prisma.room.findUnique({
+                where: { id }
+            });
+            return room ? this.deserializeRoom(room) : null;
+        } catch (error) {
+            logger.error('Error getting room:', { id, error });
+            return null;
+        }
     }
 
     async updateRoom(room: Room): Promise<void> {
-        const repository = this.dataSource.getRepository(Room);
-        await repository.save(this.encryptRoom(room));
+        try {
+            const serializedRoom = this.serializeRoom(room);
+            await this.prisma.room.update({
+                where: { id: room.id },
+                data: serializedRoom
+            });
+            logger.info('Room updated successfully', { roomId: room.id });
+        } catch (error) {
+            logger.error('Error updating room:', { roomId: room.id, error });
+            throw error;
+        }
     }
 
     async deleteRoom(id: string): Promise<void> {
-        const repository = this.dataSource.getRepository(Room);
-        await repository.delete(id);
+        try {
+            await this.prisma.room.delete({
+                where: { id }
+            });
+            logger.info('Room deleted successfully', { roomId: id });
+        } catch (error) {
+            logger.error('Error deleting room:', { roomId: id, error });
+            throw error;
+        }
     }
 
     async getRooms(): Promise<Room[]> {
-        const repository = this.dataSource.getRepository(Room);
-        const rooms = await repository.find();
-        return rooms.map(room => this.decryptRoom(room));
+        try {
+            const rooms = await this.prisma.room.findMany();
+            return rooms.map(room => this.deserializeRoom(room));
+        } catch (error) {
+            logger.error('Error getting rooms:', error);
+            return [];
+        }
     }
 }
