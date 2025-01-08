@@ -60,25 +60,44 @@ const io = new socket_io_1.Server(httpServer, {
 const rooms = new Map();
 const userKeys = new Map();
 function encryptForUser(message, userPublicKey) {
-    const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
-    const messageKey = CryptoJS.lib.WordArray.random(256 / 8);
-    const encryptedMessage = CryptoJS.AES.encrypt(messageStr, messageKey, {
-        mode: CryptoJS.mode.CBC,
-        padding: CryptoJS.pad.Pkcs7
-    }).toString();
-    const encryptedKey = CryptoJS.AES.encrypt(messageKey.toString(), userPublicKey, {
-        mode: CryptoJS.mode.CBC,
-        padding: CryptoJS.pad.Pkcs7
-    }).toString();
-    return JSON.stringify({
-        key: encryptedKey,
-        message: encryptedMessage
-    });
+    try {
+        if (!userPublicKey) {
+            throw new Error('No public key provided for encryption');
+        }
+        const messageStr = typeof message === 'string' ? message : JSON.stringify(message);
+        const messageKey = CryptoJS.lib.WordArray.random(32).toString();
+        const encryptedMessage = CryptoJS.AES.encrypt(messageStr, messageKey);
+        if (!encryptedMessage) {
+            throw new Error('Failed to encrypt message');
+        }
+        const encryptedKey = CryptoJS.AES.encrypt(messageKey, userPublicKey);
+        if (!encryptedKey) {
+            throw new Error('Failed to encrypt message key');
+        }
+        return JSON.stringify({
+            key: encryptedKey.toString(),
+            message: encryptedMessage.toString()
+        });
+    }
+    catch (error) {
+        logger_1.logger.error('Encryption error:', error);
+        throw error;
+    }
 }
 io.on('connection', (socket) => {
     logger_1.logger.info('New client connected', { socketId: socket.id });
     socket.on('register-key', ({ publicKey }) => {
-        userKeys.set(socket.id, CryptoJS.enc.Base64.parse(publicKey));
+        if (!publicKey) {
+            logger_1.logger.error('No public key provided during registration');
+            return;
+        }
+        try {
+            userKeys.set(socket.id, publicKey);
+            logger_1.logger.info('Public key registered for socket', { socketId: socket.id });
+        }
+        catch (error) {
+            logger_1.logger.error('Error registering public key:', error);
+        }
     });
     socket.on('create-room', async ({ hasPassword, password, description, maxMembers, username, persistentKey }) => {
         try {
@@ -102,6 +121,12 @@ io.on('connection', (socket) => {
     });
     socket.on('join-room', async ({ roomId, username, password, persistentKey }) => {
         try {
+            const userPublicKey = userKeys.get(socket.id);
+            if (!userPublicKey) {
+                logger_1.logger.error('No encryption key registered for socket', { socketId: socket.id });
+                socket.emit('error', { message: 'No encryption key registered. Please refresh the page.' });
+                return;
+            }
             const privDB = await PrivDB_1.PrivDB.getInstance();
             const room = await privDB.getRoom(roomId);
             if (!room) {
@@ -112,13 +137,17 @@ io.on('connection', (socket) => {
                 socket.emit('error', { message: 'Invalid password' });
                 return;
             }
-            const userId = userIdentifier_1.UserIdentifier.generateUserId(username, socket.handshake.address, persistentKey);
+            const userId = await userIdentifier_1.UserIdentifier.generateUserId(username, socket.handshake.address, persistentKey);
             const connectedMembers = rooms.get(roomId) || new Map();
-            if (Array.from(connectedMembers.values()).some(u => u.username === username)) {
+            const existingConnectedUser = Array.from(connectedMembers.values()).find(u => u.username.toLowerCase() === username.toLowerCase() &&
+                (!persistentKey || u.persistentId !== userId));
+            const existingRoomMember = Object.values(room.members).find(m => m.userId !== userId &&
+                m.username?.toLowerCase() === username.toLowerCase());
+            if (existingConnectedUser || existingRoomMember) {
                 socket.emit('error', { message: 'Username already taken in this room' });
                 return;
             }
-            if (!room.addMember(userId)) {
+            if (!room.addMember(userId, username)) {
                 socket.emit('error', { message: 'Room is full' });
                 return;
             }
@@ -130,7 +159,7 @@ io.on('connection', (socket) => {
                 roomId,
                 socketId: socket.id,
                 persistentId: persistentKey ? userId : undefined,
-                publicKey: userKeys.get(socket.id)?.toString()
+                publicKey: userPublicKey
             });
             socket.join(roomId);
             await privDB.updateRoom(room);
@@ -147,14 +176,8 @@ io.on('connection', (socket) => {
                 roles: room.roles,
                 userRoles
             };
-            const userPublicKey = userKeys.get(socket.id)?.toString();
-            if (userPublicKey) {
-                socket.emit('joined-room', encryptForUser(roomInfo, userPublicKey));
-            }
-            else {
-                socket.emit('error', { message: 'No encryption key registered' });
-                return;
-            }
+            const encryptedRoomInfo = encryptForUser(roomInfo, userPublicKey);
+            socket.emit('joined-room', encryptedRoomInfo);
             const notification = {
                 userId,
                 username,
@@ -164,70 +187,54 @@ io.on('connection', (socket) => {
             };
             for (const member of connectedMembers.values()) {
                 if (member.socketId !== socket.id && member.publicKey) {
-                    socket.to(member.socketId).emit('user-joined', encryptForUser(notification, member.publicKey));
+                    const encryptedNotification = encryptForUser(notification, member.publicKey);
+                    socket.to(member.socketId).emit('user-joined', encryptedNotification);
                 }
             }
             logger_1.logger.info(`User ${userId} joined room ${roomId}`);
         }
         catch (error) {
             logger_1.logger.error('Error joining room:', error);
-            socket.emit('error', { message: 'Failed to join room' });
-        }
-    });
-    socket.on('send-message', async ({ roomId, content }) => {
-        const room = rooms.get(roomId);
-        if (!room)
-            return;
-        const sender = Array.from(room.values()).find(u => u.socketId === socket.id);
-        if (!sender)
-            return;
-        for (const recipient of room.values()) {
-            if (recipient.socketId !== socket.id && recipient.publicKey) {
-                const encryptedContent = encryptForUser({
-                    sender: sender.username,
-                    content,
-                    timestamp: Date.now()
-                }, recipient.publicKey);
-                socket.to(recipient.socketId).emit('message', encryptedContent);
-            }
+            socket.emit('error', { message: 'Failed to join room. Please try again.' });
         }
     });
     socket.on('disconnect', async () => {
-        for (const [roomId, members] of rooms.entries()) {
-            const userEntry = Array.from(members.entries())
-                .find(([_, user]) => user.socketId === socket.id);
-            if (userEntry) {
-                const [userId, user] = userEntry;
-                members.delete(userId);
-                if (members.size === 0) {
-                    rooms.delete(roomId);
-                }
-                else {
-                    const notification = {
-                        userId,
-                        members: Array.from(members.values()).map(u => u.username),
-                        currentMembers: members.size
-                    };
-                    for (const member of members.values()) {
-                        if (member.publicKey) {
-                            socket.to(member.socketId).emit('user-left', encryptForUser(notification, member.publicKey));
+        try {
+            userKeys.delete(socket.id);
+            for (const [roomId, members] of rooms.entries()) {
+                const userEntry = Array.from(members.entries()).find(([_, user]) => user.socketId === socket.id);
+                if (userEntry) {
+                    const [userId, user] = userEntry;
+                    members.delete(userId);
+                    const privDB = await PrivDB_1.PrivDB.getInstance();
+                    const room = await privDB.getRoom(roomId);
+                    if (room) {
+                        delete room.members[userId];
+                        await privDB.updateRoom(room);
+                        const remainingMembers = Array.from(members.values()).map(u => u.username);
+                        const notification = {
+                            userId,
+                            members: remainingMembers,
+                            currentMembers: remainingMembers.length
+                        };
+                        for (const member of members.values()) {
+                            if (member.publicKey) {
+                                const encryptedNotification = encryptForUser(notification, member.publicKey);
+                                socket.to(member.socketId).emit('user-left', encryptedNotification);
+                            }
                         }
+                        logger_1.logger.info(`User ${userId} left room ${roomId}`);
                     }
+                    break;
                 }
-                const privDB = await PrivDB_1.PrivDB.getInstance();
-                const room = await privDB.getRoom(roomId);
-                if (room) {
-                    room.removeMember(userId);
-                    await privDB.updateRoom(room);
-                }
-                socket.leave(roomId);
-                logger_1.logger.info(`User ${userId} left room ${roomId}`);
             }
         }
-        userKeys.delete(socket.id);
+        catch (error) {
+            logger_1.logger.error('Error handling disconnect:', error);
+        }
     });
 });
-const PORT = process.env.PORT || 3000;
-httpServer.listen(PORT, () => {
-    logger_1.logger.info(`Server running on port ${PORT}`);
+const port = process.env.PORT || 3000;
+httpServer.listen(port, () => {
+    logger_1.logger.info(`Server running on port ${port}`);
 });
