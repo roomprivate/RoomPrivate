@@ -4,6 +4,8 @@ import { logger } from '../utils/logger';
 import { generateRoomName } from '../utils/wordLists';
 import { spawn } from 'child_process';
 import path from 'path';
+import os from 'os';
+import { encryptionBinary } from '../utils/encryptionBinary';
 
 export class PrivDB {
     private static instance: PrivDB;
@@ -16,7 +18,10 @@ export class PrivDB {
     }
 
     private startEncryptionProcess() {
-        const executablePath = path.join(process.cwd(), 'encryption', 'target', 'release', 'encryption.exe');
+        const isWindows = os.platform() === 'win32';
+        const binaryName = isWindows ? 'encryption.exe' : 'encryption';
+        const executablePath = path.join(process.cwd(), 'encryption', 'target', 'release', binaryName);
+        
         this.encryptionProcess = spawn(executablePath, [], {
             stdio: ['pipe', 'pipe', 'pipe']
         });
@@ -92,18 +97,12 @@ export class PrivDB {
             // Hash password using Rust service if provided
             let encryptedPassword: string | undefined;
             if (data.password) {
-                const hashResponse = await this.sendToRustProcess({
-                    type: 'hash_password',
-                    password: data.password
-                });
-                encryptedPassword = hashResponse.hash;
+                const hashResponse = await this.hashPassword(data.password);
+                encryptedPassword = hashResponse;
             }
 
             // Generate room key using Rust service
-            const keyResponse = await this.sendToRustProcess({
-                type: 'generate_room_key'
-            });
-            const roomKey = keyResponse.key;
+            const roomKey = await this.generateRoomKey();
             const roomName = data.name || generateRoomName();
 
             const room = new Room(
@@ -204,6 +203,29 @@ export class PrivDB {
         } catch (error) {
             logger.error('Error deleting room:', error);
             throw error;
+        }
+    }
+
+    async generateRoomKey(): Promise<string> {
+        try {
+            const response = await encryptionBinary.sendCommand({
+                type: 'generate_room_key'
+            });
+            return response.key;
+        } catch (error) {
+            throw new Error(`Failed to generate room key: ${error}`);
+        }
+    }
+
+    async hashPassword(password: string): Promise<string> {
+        try {
+            const response = await encryptionBinary.sendCommand({
+                type: 'hash_password',
+                password
+            });
+            return response.hash;
+        } catch (error) {
+            throw new Error(`Failed to hash password: ${error}`);
         }
     }
 }

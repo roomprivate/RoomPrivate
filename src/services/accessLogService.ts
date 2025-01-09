@@ -2,7 +2,10 @@ import { PrismaClient, Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { spawn } from 'child_process';
 import { join } from 'path';
+import os from 'os';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
+import { encryptionBinary } from '../utils/encryptionBinary';
+import * as fs from 'fs';
 
 interface AccessLogInput {
     userIp: string;
@@ -51,9 +54,13 @@ export class AccessLogService {
     static {
         if (isMainThread) {
             // Start Rust encryption processes
+            const isWindows = os.platform() === 'win32';
+            const binaryName = isWindows ? 'encryption.exe' : 'encryption';
+            const binaryPath = join(process.cwd(), 'encryption', 'target', 'release', binaryName);
+            
             for (let i = 0; i < this.WORKERS_COUNT; i++) {
                 const rustProcess = spawn(
-                    join(process.cwd(), 'encryption', 'target', 'release', 'encryption.exe'),
+                    binaryPath,
                     [],
                     { stdio: ['pipe', 'pipe', 'pipe'] }
                 );
@@ -65,7 +72,7 @@ export class AccessLogService {
                     if (code !== 0) {
                         // Restart the process
                         const newProcess = spawn(
-                            join(process.cwd(), 'encryption', 'target', 'release', 'encryption.exe'),
+                            binaryPath,
                             [],
                             { stdio: ['pipe', 'pipe', 'pipe'] }
                         );
@@ -304,78 +311,47 @@ export class AccessLogService {
         });
     }
 
-    static async logAccess(data: AccessLogInput): Promise<void> {
-        if (this.isRateLimited(data.userIp)) {
-            return;
-        }
-
+    private static async encryptLogEntry(data: AccessLogInput | { userId: string, roomId: string, action: string, timestamp: string }): Promise<string> {
         try {
-            console.log('Starting encryption for log entry');
-            const [
-                encryptedIp,
-                encryptedGeoLoc,
-                encryptedPlatform,
-                encryptedDevice,
-                encryptedTimestamp
-            ] = await Promise.all([
-                this.encryptFieldInRust(data.userIp).catch(error => {
-                    console.error('Failed to encrypt IP:', error);
-                    throw error;
-                }),
-                this.encryptFieldInRust(data.userGeoLoc).catch(error => {
-                    console.error('Failed to encrypt GeoLoc:', error);
-                    throw error;
-                }),
-                this.encryptFieldInRust(data.platform).catch(error => {
-                    console.error('Failed to encrypt Platform:', error);
-                    throw error;
-                }),
-                this.encryptFieldInRust(data.device).catch(error => {
-                    console.error('Failed to encrypt Device:', error);
-                    throw error;
-                }),
-                this.encryptFieldInRust(new Date().toISOString()).catch(error => {
-                    console.error('Failed to encrypt Timestamp:', error);
-                    throw error;
-                })
-            ]);
-
-            console.log('Successfully encrypted all fields');
-            const entropyMarkBase64 = crypto.randomBytes(32).toString('base64');
-
-            const logData: EncryptedLogData = {
-                encryptedIp: encryptedIp.encrypted,
-                encryptedGeoLoc: encryptedGeoLoc.encrypted,
-                encryptedPlatform: encryptedPlatform.encrypted,
-                encryptedDevice: encryptedDevice.encrypted,
-                encryptedTimestamp: encryptedTimestamp.encrypted,
-                publicKey: encryptedIp.publicKey,
-                entropyMark: entropyMarkBase64
-            };
-
-            return new Promise((resolve, reject) => {
-                console.log('Queueing log entry for batch processing');
-                this.batchQueue.push({ 
-                    data: logData, 
-                    resolve: () => {
-                        console.log('Successfully processed log entry');
-                        resolve();
-                    }, 
-                    reject: (error) => {
-                        console.error('Failed to process log entry:', error);
-                        reject(error);
-                    }
-                });
-
-                if (this.batchQueue.length >= this.BATCH_SIZE) {
-                    void this.processBatch();
-                } else {
-                    this.scheduleBatchProcessing();
-                }
+            const response = await encryptionBinary.sendCommand({
+                type: 'encrypt',
+                value: JSON.stringify(data),
+                aes_key: crypto.randomBytes(32).toString('base64'),
+                aes_iv: crypto.randomBytes(12).toString('base64')
             });
+            return response.encrypted;
         } catch (error) {
-            console.error('Access logging failed:', error);
-            throw new Error(`Access logging failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            console.error('Failed to encrypt log entry:', error);
+            throw new Error(`Failed to encrypt log entry: ${error}`);
+        }
+    }
+
+    static async logAccess(dataOrUserId: AccessLogInput | string, roomId?: string, action?: string): Promise<void> {
+        try {
+            let data: AccessLogInput | { userId: string, roomId: string, action: string, timestamp: string };
+            
+            if (typeof dataOrUserId === 'string') {
+                if (!roomId || !action) {
+                    throw new Error('roomId and action are required when passing userId');
+                }
+                data = {
+                    userId: dataOrUserId,
+                    roomId,
+                    action,
+                    timestamp: new Date().toISOString()
+                };
+            } else {
+                if (this.isRateLimited(dataOrUserId.userIp)) {
+                    return;
+                }
+                data = dataOrUserId;
+            }
+
+            const encryptedData = await this.encryptLogEntry(data);
+            await fs.promises.appendFile('access.log', encryptedData + '\n');
+        } catch (error) {
+            console.error('Failed to log access:', error);
+            throw new Error(`Failed to log access: ${error}`);
         }
     }
 }
