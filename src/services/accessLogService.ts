@@ -28,6 +28,8 @@ export class AccessLogService {
     private static readonly BATCH_SIZE = 10;
     private static readonly MAX_RETRIES = 3;
     private static readonly WORKERS_COUNT = 4;
+    private static readonly LOG_RETENTION_DAYS = 180; // 6 months
+    private static readonly CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
     
     private static accessAttempts = new Map<string, number[]>();
     private static batchQueue: Array<{
@@ -38,6 +40,7 @@ export class AccessLogService {
     private static batchTimeout: NodeJS.Timeout | null = null;
     private static workers: Worker[] = [];
     private static workerIndex = 0;
+    private static cleanupInterval: NodeJS.Timeout | null = null;
 
     static {
         if (isMainThread) {
@@ -47,6 +50,52 @@ export class AccessLogService {
                 });
                 this.workers.push(worker);
             }
+            this.startCleanupScheduler();
+        }
+    }
+
+    private static startCleanupScheduler() {
+        // Run cleanup immediately
+        void this.cleanupOldLogs();
+        
+        // Schedule regular cleanup
+        this.cleanupInterval = setInterval(() => {
+            void this.cleanupOldLogs();
+        }, this.CLEANUP_INTERVAL);
+
+        // Ensure cleanup interval is cleared on process exit
+        process.on('beforeExit', () => {
+            if (this.cleanupInterval) {
+                clearInterval(this.cleanupInterval);
+            }
+        });
+    }
+
+    private static async cleanupOldLogs(): Promise<void> {
+        try {
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - this.LOG_RETENTION_DAYS);
+            
+            await prisma.$transaction(async (tx) => {
+                // Delete in batches to avoid memory issues
+                while (true) {
+                    const result = await tx.$executeRaw`
+                        WITH deleted AS (
+                            SELECT id FROM "AccessLog"
+                            WHERE "encryptedTimestamp" < ${cutoffDate.toISOString()}
+                            LIMIT 1000
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        DELETE FROM "AccessLog"
+                        WHERE id IN (SELECT id FROM deleted)
+                        RETURNING id
+                    `;
+                    
+                    if (result === 0) break;
+                }
+            });
+        } catch {
+            // Silently fail cleanup - will retry next interval
         }
     }
 
