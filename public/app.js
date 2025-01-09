@@ -220,6 +220,7 @@ socket.on('message', (data) => {
 
 socket.on('room-created', (encryptedData) => {
     console.log('Room created raw data:', encryptedData);
+    console.log("emitted")
     try {
         const data = decryptMessage(encryptedData);
         console.log('Room created decrypted:', data);
@@ -240,6 +241,8 @@ socket.on('room-created', (encryptedData) => {
         document.getElementById('room-name-display').textContent = data.name || 'Unnamed Room';
         document.getElementById('room-id-display').textContent = `Room ID: ${data.roomId}`;
         document.getElementById('room-description-display').textContent = data.description || '';
+        document.getElementById('members-count').textContent = data.members.length + "/" + data.max;
+        console.log(JSON.stringify(data))
         document.title = `${data.name || 'Unnamed Room'} - Chat Room`;
         
         // Initialize members list
@@ -276,6 +279,8 @@ socket.on('room-joined', (encryptedData) => {
         document.getElementById('room-name-display').textContent = data.name || 'Unnamed Room';
         document.getElementById('room-id-display').textContent = `Room ID: ${data.roomId}`;
         document.getElementById('room-description-display').textContent = data.description || '';
+        document.getElementById('members-count').textContent = data.members.length + "/" + data.max;
+        console.log(JSON.stringify(data))
         document.title = `${data.name || 'Unnamed Room'} - Chat Room`;
         
         // Initialize members list

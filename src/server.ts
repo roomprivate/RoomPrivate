@@ -212,6 +212,7 @@ io.on('connection', (socket) => {
                 name: room.name,
                 description: room.description,
                 encryptedRoomKey: room.encryptedRoomKey,
+                max: room.maxMembers === 0 ? '∞' : room.maxMembers,
                 members: Array.from(roomUsers.values()).map(u => ({
                     username: u.username,
                     userId: u.socketId,
@@ -283,7 +284,7 @@ io.on('connection', (socket) => {
             socket.to(roomId).emit('user-joined', {
                 username,
                 userId: socket.id,
-                status: 'online'
+                status: 'online',
             });
 
             // Send room info back to user
@@ -292,6 +293,7 @@ io.on('connection', (socket) => {
                 userId: socket.id,
                 name: room.name,
                 description: room.description,
+                max: room.maxMembers === 0 ? '∞' : room.maxMembers, //WHY THE FUCK IT ISNT BEING SENT TO THE FRONT END?????
                 encryptedRoomKey: room.encryptedRoomKey,
                 members: Array.from(roomUsers.values()).map(u => ({
                     username: u.username,
@@ -299,6 +301,7 @@ io.on('connection', (socket) => {
                     status: u.status
                 }))
             };
+            console.log(room)
 
             socket.emit('room-joined', encryptForUser(roomInfo, publicKey));
             logger.info('User joined room successfully', { roomId, userId: socket.id });
