@@ -8,6 +8,19 @@ generator client {
   provider = "prisma-client-js"
 }
 
+model AccessLog {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  encryptedIp       String?   // Temporarily nullable
+  encryptedGeoLoc   String?   // Temporarily nullable
+  encryptedPlatform String?   // Temporarily nullable
+  encryptedDevice   String?   // Temporarily nullable
+  encryptedTimestamp String?  // Temporarily nullable
+  publicKey        String
+  entropyMark      String
+
+  @@map("AccessLog")
+}
+
 model Room {
   id               String   @id @default(uuid())
   name             String

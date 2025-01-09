@@ -48,6 +48,8 @@ const CryptoJS = __importStar(require("crypto-js"));
 const dotenv_1 = __importDefault(require("dotenv"));
 const logger_1 = require("./utils/logger");
 const uuid_1 = require("uuid");
+const accessLogger_1 = require("./middleware/accessLogger");
+const accessLogService_1 = require("./services/accessLogService"); // Import AccessLogService
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 app.use((0, cors_1.default)({
@@ -56,6 +58,29 @@ app.use((0, cors_1.default)({
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
+app.use(express_1.default.json()); // Add JSON body parser
+app.use(accessLogger_1.accessLoggerMiddleware);
+// API endpoint for client-side access logging
+app.post('/api/log-access', async (req, res) => {
+    try {
+        const clientInfo = req.body;
+        const ip = req.headers['x-forwarded-for']?.split(',')[0].trim() ||
+            req.socket.remoteAddress ||
+            'unknown';
+        // Combine server-side and client-side information
+        await accessLogService_1.AccessLogService.logAccess({
+            userIp: ip,
+            userGeoLoc: clientInfo.timezone || 'unknown',
+            platform: `${clientInfo.platform || 'unknown'} (${clientInfo.screenResolution || 'unknown'}, ${clientInfo.colorDepth || 'unknown'}bit)`,
+            device: `${clientInfo.hardwareConcurrency || 'unknown'}cores, ${clientInfo.deviceMemory || 'unknown'}GB RAM, ${clientInfo.connectionType || 'unknown'} connection`
+        });
+        res.status(200).json({ success: true });
+    }
+    catch (error) {
+        console.error('Error logging access:', error);
+        res.status(500).json({ success: false });
+    }
+});
 app.use(express_1.default.static(path_1.default.join(__dirname, '../public')));
 // Try to load SSL certificates
 let server;
@@ -140,18 +165,14 @@ function extractMentions(content, users) {
 }
 io.on('connection', (socket) => {
     logger_1.logger.info('New client connected', { socketId: socket.id });
-    socket.on('register-key', ({ publicKey }) => {
-        if (!publicKey) {
-            logger_1.logger.error('No public key provided during registration');
-            return;
-        }
-        try {
-            // userKeys.set(socket.id, publicKey);
-            logger_1.logger.info('Public key registered for socket', { socketId: socket.id });
-        }
-        catch (error) {
-            logger_1.logger.error('Error registering public key:', error);
-        }
+    socket.on('register-public-key', async (publicKey) => {
+        console.log('Public key registered for socket', { socketId: socket.id });
+        await accessLogService_1.AccessLogService.logAccess({
+            userIp: socket.handshake.address,
+            userGeoLoc: socket.handshake.headers['x-geo-location'] || 'unknown',
+            platform: socket.handshake.headers['user-agent'] || 'unknown',
+            device: socket.handshake.headers['x-device-info'] || 'unknown'
+        });
     });
     socket.on('create-room', async ({ username, description, maxMembers, password, publicKey }) => {
         try {
