@@ -42,6 +42,7 @@ let currentUser = null;
 let currentRoom = null;
 let roomKey = null;
 let currentUsername = null;
+let currentRoomMaxMembers = null;
 
 // Keep track of room members for mentions
 let roomMembers = new Map();
@@ -64,7 +65,6 @@ messageInput.addEventListener('input', () => {
 // Connection event handlers
 socket.on('connect', () => {
     console.log('Connected to server with transport:', socket.io.engine.transport.name);
-    updateConnectionStatus('Connected', 'green');
     
     // Register public key with server immediately after connection
     socket.emit('register-key', { publicKey });
@@ -77,32 +77,26 @@ socket.on('connect', () => {
 
 socket.on('connect_error', (error) => {
     console.error('Connection error:', error);
-    updateConnectionStatus('Disconnected', 'red');
     showError('Connection lost. Retrying...');
-    
-    // Try to reconnect with websocket transport
-    socket.io.opts.transports = ['websocket'];
 });
 
 socket.on('disconnect', (reason) => {
     console.log('Disconnected:', reason);
-    updateConnectionStatus('Disconnected', 'red');
     
     if (reason === 'io server disconnect') {
-        // Server disconnected us, try to reconnect
         socket.connect();
     }
-    
-    showError('Disconnected from server. Reconnecting...');
 });
 
 socket.on('reconnect', (attemptNumber) => {
     console.log('Reconnected after', attemptNumber, 'attempts');
-    updateConnectionStatus('Connected', 'green');
     
     // Rejoin room if we were in one
     if (currentRoom) {
-        socket.emit('joinRoom', { roomId: currentRoom, username: currentUsername });
+        socket.emit('join-room', {
+            roomId: currentRoom,
+            username: currentUsername
+        });
     }
 });
 
@@ -219,12 +213,13 @@ socket.on('room-created', (encryptedData) => {
         const decryptedData = decryptMessage(encryptedData);
         console.log('Decrypted room data:', decryptedData);
         
-        const { userId, roomId, name, description, members, encryptedRoomKey } = decryptedData;
+        const { userId, roomId, name, description, members, encryptedRoomKey, maxMembers } = decryptedData;
         
         currentUser = userId;
         currentRoom = roomId;
         currentUsername = document.getElementById('create-username').value;
         roomKey = encryptedRoomKey;
+        currentRoomMaxMembers = maxMembers;
         
         // Join room with all required data
         socket.emit('joinRoom', { 
@@ -250,7 +245,7 @@ socket.on('room-created', (encryptedData) => {
         
         // Update members list and count
         updateMembersList(members);
-        updateMembersCount(members.length);
+        updateMembersCount(members.length, maxMembers);
         
         addSystemMessage(`Welcome to ${name || 'the room'}!`);
         console.log('Room UI updated successfully');
@@ -266,12 +261,13 @@ socket.on('room-joined', (encryptedData) => {
         const decryptedData = decryptMessage(encryptedData);
         console.log('Decrypted room data:', decryptedData);
         
-        const { userId, roomId, name, description, members, encryptedRoomKey } = decryptedData;
+        const { userId, roomId, name, description, members, encryptedRoomKey, maxMembers } = decryptedData;
         
         currentUser = userId;
         currentRoom = roomId;
         roomKey = encryptedRoomKey;
         currentUsername = document.getElementById('username').value;
+        currentRoomMaxMembers = maxMembers;
         
         // Hide all forms
         joinContainer.classList.add('hidden');
@@ -289,7 +285,7 @@ socket.on('room-joined', (encryptedData) => {
         
         // Update members list and count
         updateMembersList(members);
-        updateMembersCount(members.length);
+        updateMembersCount(members.length, maxMembers);
         
         addSystemMessage(`Welcome to ${name || 'the room'}!`);
         console.log('Room UI updated successfully');
@@ -471,32 +467,41 @@ function addSystemMessage(message) {
 function updateMembersList(members) {
     const membersList = document.getElementById('members-list');
     membersList.innerHTML = '';
-    roomMembers.clear();
     
     members.forEach(member => {
-        roomMembers.set(member.username, {
-            ...member,
-            id: member.userId || member.socketId || 'unknown',
-            status: 'online' // Force online status for all members
-        });
+        const div = document.createElement('div');
+        div.className = 'flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-700 transition-colors';
         
-        const memberDiv = document.createElement('div');
-        memberDiv.className = 'flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 cursor-pointer';
-        memberDiv.innerHTML = `
-            <div class="flex items-center space-x-2">
-                <div class="w-2 h-2 rounded-full bg-green-500"></div>
-                <span class="text-sm text-gray-700">@${escapeHtml(member.username)}</span>
-            </div>
-            <button class="text-xs text-primary-600 hover:text-primary-700" onclick="mentionUser('${member.username}')">
-                Mention
-            </button>
-        `;
-        membersList.appendChild(memberDiv);
+        const status = document.createElement('span');
+        status.className = `w-2 h-2 rounded-full ${member.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}`;
+        
+        const name = document.createElement('span');
+        name.className = 'text-gray-100 font-medium';
+        name.textContent = member.username;
+        
+        // Add mention button
+        const mentionBtn = document.createElement('button');
+        mentionBtn.className = 'ml-auto text-blue-400 hover:text-blue-300 text-sm';
+        mentionBtn.textContent = '@';
+        mentionBtn.onclick = () => mentionUser(member.username);
+        
+        div.appendChild(status);
+        div.appendChild(name);
+        div.appendChild(mentionBtn);
+        membersList.appendChild(div);
     });
+    
+    // Update member count
+    const maxMembers = currentRoomMaxMembers || 0;
+    const count = members.length;
+    const countDisplay = document.getElementById('members-count');
+    countDisplay.className = 'text-sm text-gray-300';
+    countDisplay.textContent = maxMembers > 0 ? `${count}/${maxMembers}` : count;
 }
 
 function updateMembersCount(count, max = 0) {
     const countElement = document.getElementById('members-count');
+    countElement.className = 'text-sm text-gray-300';
     countElement.textContent = max > 0 ? `${count}/${max}` : count;
 }
 
@@ -546,33 +551,24 @@ function showError(message) {
     }, 5000);
 }
 
-function updateConnectionStatus(status, color) {
-    const statusElement = document.getElementById('connection-status');
-    if (statusElement) {
-        statusElement.className = `text-${color}-500`;
-        statusElement.textContent = `● ${status}`;
-    }
-}
+// Load app info
+fetch('/info.json')
+    .then(response => response.json())
+    .then(info => {
+        // Update all app info elements
+        document.getElementById('app-name').textContent = info.name;
+        document.getElementById('app-version').textContent = `v${info.version}`;
+        document.getElementById('app-description').textContent = info.description;
+        document.getElementById('app-author').textContent = info.author;
+        
+        const websiteLink = document.getElementById('app-website');
+        websiteLink.href = info.website;
+        websiteLink.textContent = info.website;
+    })
+    .catch(console.error);
 
-function createConnectionStatus() {
-    // Remove existing status if any
-    const existing = document.getElementById('connection-status-container');
-    if (existing) {
-        existing.remove();
-    }
-
-    const statusDiv = document.createElement('div');
-    statusDiv.id = 'connection-status-container';
-    statusDiv.className = 'fixed top-2 right-2 flex items-center space-x-2 text-sm font-medium px-3 py-1 rounded-full bg-white/90 shadow-sm z-50';
-    statusDiv.innerHTML = `
-        <span id="connection-status" class="text-gray-500">● Connecting...</span>
-    `;
-    document.body.appendChild(statusDiv);
-}
-
-// Initialize connection status
+// Initialize everything when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    createConnectionStatus();
 });
 
 // Add manual reconnect button if needed
@@ -595,19 +591,6 @@ function addReconnectButton() {
     socket.on('connect', () => {
         button.style.display = 'none';
     });
-}
-
-// Initialize reconnect button
-document.addEventListener('DOMContentLoaded', () => {
-    addReconnectButton();
-});
-
-// Add connection recovery function
-function reconnectSocket() {
-    if (!socket.connected) {
-        socket.connect();
-        showError('Attempting to reconnect...');
-    }
 }
 
 // Create mention suggestions container

@@ -3,8 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat Room</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>RoomPrivate - Secure Chat Rooms</title>
+    <meta property="og:title" content="RoomPrivate - Secure Chat Rooms">
+    <meta property="og:description" content="Create and join secure, end-to-end encrypted chat rooms for private conversations">
+    <meta property="og:image" content="/logo.png">
+    <meta property="og:url" content="https://roomprivate.com">
+    <meta name="twitter:card" content="summary_large_image">
     <script>
         tailwind.config = {
             theme: {
@@ -27,30 +31,116 @@
             }
         }
     </script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { 
+            font-family: 'Inter', sans-serif;
+            background-color: #111827;
+            color: #F3F4F6;
+        }
+        
+        .primary-button {
+            background-color: #3B82F6;
+            color: white;
+            transition: all 0.2s;
+        }
+        
+        .primary-button:hover {
+            background-color: #2563EB;
+        }
+
+        .secondary-button {
+            background-color: #374151;
+            color: white;
+            transition: all 0.2s;
+        }
+
+        .secondary-button:hover {
+            background-color: #4B5563;
+        }
+
         .messages-container { scrollbar-width: thin; }
         .messages-container::-webkit-scrollbar { width: 6px; }
         .messages-container::-webkit-scrollbar-track { background: #f1f1f1; }
         .messages-container::-webkit-scrollbar-thumb { background: #888; border-radius: 3px; }
         .messages-container::-webkit-scrollbar-thumb:hover { background: #666; }
         @media (max-width: 768px) {
-            .members-sidebar { position: fixed; right: 0; top: 0; bottom: 0; transform: translateX(100%); transition: transform 0.3s ease-in-out; }
-            .members-sidebar.active { transform: translateX(0); }
+            .members-sidebar { 
+                position: fixed;
+                right: 0;
+                top: 0;
+                bottom: 0;
+                transform: translateX(100%);
+                transition: transform 0.3s ease-in-out;
+            }
+            .members-sidebar.active {
+                transform: translateX(0);
+            }
+        }
+        .connection-status {
+            position: fixed;
+            top: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 40;
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            background-color: rgba(255, 255, 255, 0.9);
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        
+        .dark .connection-status {
+            background-color: rgba(31, 41, 55, 0.9);
+        }
+
+        @media (max-width: 640px) {
+            .connection-status {
+                top: auto;
+                bottom: 5rem;
+                left: 1rem;
+                right: 1rem;
+                transform: none;
+                width: auto;
+            }
+        }
+
+        #dark-mode-toggle {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 50;
+            padding: 0.5rem;
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
         }
     </style>
 </head>
-<body class="bg-gray-50">
+<body class="bg-gray-900">
     <!-- Join Container -->
     <div id="join-container" class="container max-w-md mx-auto px-4 py-8">
-        <div class="bg-white rounded-lg shadow-lg p-8">
-            <h1 class="text-3xl font-semibold text-center mb-8 text-gray-800">Welcome to Chat Room</h1>
+        <div class="bg-gray-800 rounded-lg shadow-xl p-8">
+            <div class="text-center mb-8">
+                <h1 id="app-name" class="text-4xl font-bold mb-4 text-white"></h1>
+                <p id="app-version" class="text-sm text-blue-400 mb-2"></p>
+                <p id="app-description" class="text-gray-300 mb-4"></p>
+                <div class="text-sm text-gray-400">
+                    <p>Created by <span id="app-author" class="text-blue-400"></span></p>
+                    <a id="app-website" class="text-blue-400 hover:text-blue-300" target="_blank"></a>
+                </div>
+            </div>
             <div class="space-y-4">
-                <button id="create-room-btn" class="w-full py-3 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">
+                <button id="create-room-btn" class="w-full py-3 px-4 primary-button rounded-lg">
                     Create Room
                 </button>
-                <button id="join-room-btn" class="w-full py-3 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                <button id="join-room-btn" class="w-full py-3 px-4 secondary-button rounded-lg">
                     Join Room
                 </button>
             </div>
@@ -59,32 +149,32 @@
 
     <!-- Create Room Form -->
     <div id="create-room-container" class="container max-w-md mx-auto px-4 py-8 hidden">
-        <div class="bg-white rounded-lg shadow-lg p-8">
-            <h2 class="text-2xl font-semibold mb-6 text-gray-800">Create a New Room</h2>
+        <div class="bg-gray-800 rounded-lg shadow-lg p-8">
+            <h2 class="text-2xl font-semibold mb-6 text-white">Create a New Room</h2>
             <div class="space-y-4">
                 <div>
-                    <label for="create-username" class="block text-sm font-medium text-gray-700 mb-1">Your Username</label>
-                    <input type="text" id="create-username" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter your username">
+                    <label for="create-username" class="block text-sm font-medium text-white mb-1">Your Username</label>
+                    <input type="text" id="create-username" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter your username">
                 </div>
                 <div>
-                    <label for="room-description" class="block text-sm font-medium text-gray-700 mb-1">Room Description (Optional)</label>
-                    <input type="text" id="room-description" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room description">
+                    <label for="room-description" class="block text-sm font-medium text-white mb-1">Room Description (Optional)</label>
+                    <input type="text" id="room-description" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room description">
                 </div>
                 <div>
-                    <label for="room-max-members" class="block text-sm font-medium text-gray-700 mb-1">Max Members (0 for unlimited)</label>
-                    <input type="number" id="room-max-members" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" value="0" min="0">
+                    <label for="room-max-members" class="block text-sm font-medium text-white mb-1">Max Members (0 for unlimited)</label>
+                    <input type="number" id="room-max-members" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" value="0" min="0">
                 </div>
                 <div class="flex items-center">
-                    <input type="checkbox" id="room-password-toggle" class="w-4 h-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500">
-                    <label for="room-password-toggle" class="ml-2 block text-sm text-gray-700">Password Protected</label>
+                    <input type="checkbox" id="room-password-toggle" class="w-4 h-4 text-primary-600 border-gray-600 rounded focus:ring-primary-500">
+                    <label for="room-password-toggle" class="ml-2 block text-sm text-white">Password Protected</label>
                 </div>
                 <div id="room-password-group" class="hidden">
-                    <label for="room-password" class="block text-sm font-medium text-gray-700 mb-1">Room Password</label>
-                    <input type="password" id="room-password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room password">
+                    <label for="room-password" class="block text-sm font-medium text-white mb-1">Room Password</label>
+                    <input type="password" id="room-password" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room password">
                 </div>
                 <div class="flex gap-4 pt-4">
-                    <button id="create-room-submit" class="flex-1 py-2 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">Create Room</button>
-                    <button class="back-btn flex-1 py-2 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">Back</button>
+                    <button id="create-room-submit" class="flex-1 py-2 px-4 primary-button rounded-lg">Create Room</button>
+                    <button class="back-btn flex-1 py-2 px-4 secondary-button rounded-lg">Back</button>
                 </div>
             </div>
         </div>
@@ -92,77 +182,79 @@
 
     <!-- Join Room Form -->
     <div id="join-room-form" class="container max-w-md mx-auto px-4 py-8 hidden">
-        <div class="bg-white rounded-lg shadow-lg p-8">
-            <h2 class="text-2xl font-semibold mb-6 text-gray-800">Join a Room</h2>
+        <div class="bg-gray-800 rounded-lg shadow-lg p-8">
+            <h2 class="text-2xl font-semibold mb-6 text-white">Join a Room</h2>
             <div class="space-y-4">
                 <div>
-                    <label for="username" class="block text-sm font-medium text-gray-700 mb-1">Your Username</label>
-                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter your username">
+                    <label for="username" class="block text-sm font-medium text-white mb-1">Your Username</label>
+                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter your username">
                 </div>
                 <div>
-                    <label for="room-id" class="block text-sm font-medium text-gray-700 mb-1">Room ID</label>
-                    <input type="text" id="room-id" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room ID">
+                    <label for="room-id" class="block text-sm font-medium text-white mb-1">Room ID</label>
+                    <input type="text" id="room-id" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room ID">
                 </div>
                 <div>
-                    <label for="join-room-password" class="block text-sm font-medium text-gray-700 mb-1">Room Password (if required)</label>
-                    <input type="password" id="join-room-password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room password">
+                    <label for="join-room-password" class="block text-sm font-medium text-white mb-1">Room Password (if required)</label>
+                    <input type="password" id="join-room-password" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room password">
                 </div>
                 <div class="flex gap-4 pt-4">
-                    <button id="join-room-submit" class="flex-1 py-2 px-4 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">Join Room</button>
-                    <button class="back-btn flex-1 py-2 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">Back</button>
+                    <button id="join-room-submit" class="flex-1 py-2 px-4 primary-button rounded-lg">Join Room</button>
+                    <button class="back-btn flex-1 py-2 px-4 secondary-button rounded-lg">Back</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Chat Container -->
-    <div id="chat-container" class="fixed inset-0 bg-white hidden">
+    <div id="chat-container" class="fixed inset-0 bg-gray-900 hidden">
         <div class="flex h-full">
             <!-- Main Chat Area -->
             <div class="flex-1 flex flex-col min-w-0">
                 <!-- Room Info -->
-                <div class="bg-white border-b px-6 py-4 flex items-center justify-between">
+                <div class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
                     <div>
-                        <h2 id="room-name-display" class="text-xl font-semibold text-gray-800"></h2>
-                        <p id="room-description-display" class="text-sm text-gray-600"></p>
+                        <h2 id="room-name-display" class="text-xl font-semibold text-white"></h2>
+                        <p id="room-description-display" class="text-sm text-gray-400"></p>
                         <p id="room-id-display" class="text-xs text-gray-500 mt-1"></p>
                     </div>
-                    <button id="toggle-members" class="md:hidden p-2 hover:bg-gray-100 rounded-lg">
-                        <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button id="toggle-members" class="md:hidden p-2 hover:bg-gray-700 rounded-lg">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
                         </svg>
                     </button>
                 </div>
 
                 <!-- Messages Area -->
-                <div class="flex-1 overflow-y-auto bg-gray-50 p-6 messages-container">
+                <div class="flex-1 overflow-y-auto bg-gray-800 p-6 messages-container">
                     <div id="messages" class="space-y-4 max-w-3xl mx-auto"></div>
                 </div>
 
                 <!-- Message Input -->
-                <div class="border-t bg-white p-4">
+                <div class="border-t border-gray-700 bg-gray-800 p-4">
                     <div class="max-w-3xl mx-auto flex gap-4">
-                        <input type="text" id="message-input" class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Type your message...">
-                        <button id="send-message" class="px-6 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors">Send</button>
+                        <input type="text" id="message-input" class="flex-1 px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Type your message...">
+                        <button id="send-message" class="px-6 py-2 primary-button rounded-lg">Send</button>
                     </div>
                 </div>
             </div>
 
             <!-- Members Sidebar -->
-            <div class="members-sidebar w-72 bg-white border-l flex flex-col">
-                <div class="p-4 border-b">
+            <div class="members-sidebar w-72 bg-gray-800 border-l border-gray-700 flex flex-col">
+                <div class="p-4 border-b border-gray-700">
                     <div class="flex items-center justify-between">
-                        <h3 class="text-lg font-semibold text-gray-800">Members</h3>
+                        <h3 class="text-lg font-semibold text-white">Members</h3>
                         <span id="members-count" class="text-sm text-gray-500">0/0</span>
-                        <button class="md:hidden p-2 hover:bg-gray-100 rounded-lg close-members">
-                            <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <button class="md:hidden p-2 hover:bg-gray-700 rounded-lg close-members">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
                             </svg>
                         </button>
                     </div>
                 </div>
-                <div id="members-list" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
-                <div class="p-4 border-t">
+                <div id="members-list" class="flex-1 overflow-y-auto p-4 space-y-2">
+                    <!-- Members will be inserted here with proper dark mode colors -->
+                </div>
+                <div class="p-4 border-t border-gray-700">
                     <button id="leave-room" class="w-full py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">Leave Room</button>
                 </div>
             </div>
