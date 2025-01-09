@@ -9,15 +9,13 @@ generator client {
 }
 
 model Room {
-  id                String   @id @default(uuid())
-  name              String
-  description       String?
+  id               String   @id @default(uuid())
+  name             String
+  description      String?
   encryptedPassword String?
-  ownerId          String
-  members          String   @default("{}")
-  roles            String   @default("[]")
   encryptedRoomKey String
-  maxMembers       Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  members          String   // JSON string of members
+  maxMembers      Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
