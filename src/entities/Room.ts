@@ -1,5 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
-import * as CryptoJS from 'crypto-js';
+import { encryptionBinary } from '../utils/encryptionBinary';
 import { generateRoomName } from '../utils/wordLists';
 
 export interface RoomMember {
@@ -47,10 +46,19 @@ export class Room {
         return !!this.encryptedPassword;
     }
 
-    validatePassword(password: string): boolean {
+    async validatePassword(password: string): Promise<boolean> {
         if (!this.encryptedPassword) return true;
-        const hashedPassword = CryptoJS.SHA256(password).toString();
-        return hashedPassword === this.encryptedPassword;
+        
+        try {
+            const response = await encryptionBinary.sendCommand({
+                type: 'hash_password',
+                password
+            });
+            return response.hash === this.encryptedPassword;
+        } catch (error) {
+            console.error('Failed to validate password:', error);
+            return false;
+        }
     }
 
     addMember(userId: string, username: string): boolean {
@@ -91,20 +99,43 @@ export class Room {
         description?: string, 
         maxMembers: number = 0
     ): Promise<Room> {
-        const id = uuidv4();
-        const name = generateRoomName();
-        const encryptedRoomKey = CryptoJS.SHA256(id).toString();
-        const encryptedPassword = hasPassword && password 
-            ? CryptoJS.SHA256(password).toString()
-            : undefined;
-            
-        return new Room(
-            id,
-            name,
-            encryptedRoomKey,
-            description,
-            maxMembers,
-            encryptedPassword
-        );
+        try {
+            // Generate UUID using Rust service
+            const idResponse = await encryptionBinary.sendCommand({
+                type: 'generate_uuid'
+            });
+            const id = idResponse.uuid;
+
+            // Generate room name
+            const name = generateRoomName();
+
+            // Generate room key using Rust service
+            const keyResponse = await encryptionBinary.sendCommand({
+                type: 'generate_room_key'
+            });
+            const encryptedRoomKey = keyResponse.key;
+
+            // Hash password if provided using Rust service
+            let encryptedPassword: string | undefined;
+            if (hasPassword && password) {
+                const passwordResponse = await encryptionBinary.sendCommand({
+                    type: 'hash_password',
+                    password
+                });
+                encryptedPassword = passwordResponse.hash;
+            }
+
+            return new Room(
+                id,
+                name,
+                encryptedRoomKey,
+                description,
+                maxMembers,
+                encryptedPassword
+            );
+        } catch (error) {
+            console.error('Failed to create room:', error);
+            throw new Error(`Failed to create room: ${error}`);
+        }
     }
 }
