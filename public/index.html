@@ -12,8 +12,10 @@
     <meta property="og:title" content="RoomPrivate - Secure Chat Rooms">
     <meta property="og:description" content="Create and join secure, end-to-end encrypted chat rooms for private conversations">
     <meta property="og:image" content="/logo.png">
-    <meta property="og:url" content="https://roomprivate.com">
+    <meta property="og:url" content="https://room.juliaklee.wtf">
     <meta name="twitter:card" content="summary_large_image">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -36,7 +38,6 @@
             }
         }
     </script>
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
         body { 
@@ -133,13 +134,13 @@
     <div id="join-container" class="container max-w-md mx-auto px-4 py-8">
         <div class="bg-gray-800 rounded-lg shadow-xl p-8">
             <div class="text-center mb-8">
-                <h1 id="app-name" class="text-4xl font-bold mb-4 text-white"></h1>
-                <p id="app-version" class="text-sm text-blue-400 mb-2"></p>
-                <p id="app-description" class="text-gray-300 mb-4"></p>
-                <div class="text-sm text-gray-400">
-                    <p>Created by <span id="app-author" class="text-blue-400"></span></p>
-                    <a id="app-website" class="text-blue-400 hover:text-blue-300" target="_blank"></a>
-                </div>
+                <h1 id="app-name" class="text-3xl font-bold text-white mb-2">RoomPrivate</h1>
+                <p id="app-version" class="text-sm text-gray-400 mb-2">v0.0.1 Alpha</p>
+                <p id="app-description" class="text-gray-300 mb-4">Secure, end-to-end encrypted chat rooms for private conversations</p>
+                <p class="text-sm text-gray-400">
+                    By <span id="app-author">Klee & C0de</span> | 
+                    <a id="app-website" href="https://room.juliaklee.wtf" class="text-blue-400 hover:text-blue-300">Website</a>
+                </p>
             </div>
             <div class="space-y-4">
                 <button id="create-room-btn" class="w-full py-3 px-4 primary-button rounded-lg">
@@ -178,8 +179,8 @@
                     <input type="password" id="room-password" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room password">
                 </div>
                 <div class="flex gap-4 pt-4">
-                    <button id="create-room-submit" class="flex-1 py-2 px-4 primary-button rounded-lg">Create Room</button>
-                    <button class="back-btn flex-1 py-2 px-4 secondary-button rounded-lg">Back</button>
+                    <button type="button" id="create-room-submit" class="flex-1 py-3 px-4 primary-button rounded-lg">Create Room</button>
+                    <button type="button" class="back-btn py-3 px-4 bg-gray-700 text-white rounded-lg hover:bg-gray-600">Back</button>
                 </div>
             </div>
         </div>
@@ -203,8 +204,8 @@
                     <input type="password" id="join-room-password" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room password">
                 </div>
                 <div class="flex gap-4 pt-4">
-                    <button id="join-room-submit" class="flex-1 py-2 px-4 primary-button rounded-lg">Join Room</button>
-                    <button class="back-btn flex-1 py-2 px-4 secondary-button rounded-lg">Back</button>
+                    <button id="join-room-submit" class="flex-1 py-3 px-4 primary-button rounded-lg">Join Room</button>
+                    <button class="back-btn flex-1 py-3 px-4 secondary-button rounded-lg">Back</button>
                 </div>
             </div>
         </div>
@@ -216,17 +217,18 @@
             <!-- Main Chat Area -->
             <div class="flex-1 flex flex-col min-w-0">
                 <!-- Room Info -->
-                <div class="bg-gray-800 border-b border-gray-700 px-6 py-4 flex items-center justify-between">
-                    <div>
-                        <h2 id="room-name-display" class="text-xl font-semibold text-white"></h2>
-                        <p id="room-description-display" class="text-sm text-gray-400"></p>
-                        <p id="room-id-display" class="text-xs text-gray-500 mt-1"></p>
+                <div class="bg-gray-800 border-b border-gray-700 px-6 py-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 id="room-name-display" class="text-xl font-semibold text-white"></h2>
+                            <p id="room-id-display" class="text-sm text-gray-400"></p>
+                        </div>
+                        <button id="toggle-members" class="md:hidden p-2 text-gray-400 hover:text-white">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
+                            </svg>
+                        </button>
                     </div>
-                    <button id="toggle-members" class="md:hidden p-2 hover:bg-gray-700 rounded-lg">
-                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-                        </svg>
-                    </button>
                 </div>
 
                 <!-- Messages Area -->
@@ -296,7 +298,6 @@
         </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script src="js/accessLogger.js"></script>
     <script src="app.js"></script>
