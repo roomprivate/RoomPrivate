@@ -65,6 +65,7 @@ document.getElementById('join-room-submit').addEventListener('click', () => {
     const password = document.getElementById('join-room-password').value;
     const persistentKey = document.getElementById('join-persistent-key').value;
 
+    currentRoom = roomId; // Set currentRoom when joining
     socket.emit('join-room', {
         roomId,
         username,
@@ -107,9 +108,10 @@ socket.on('joined-room', (encryptedData) => {
         const decryptedData = decryptMessage(encryptedData);
         console.log('Decrypted room data:', decryptedData);
         
-        const { userId, roomKey: key, roomName, description, maxMembers, currentMembers, members } = decryptedData;
+        const { userId, roomId, roomKey: key, roomName, description, maxMembers, currentMembers, members } = decryptedData;
         
         currentUser = userId;
+        currentRoom = roomId; // Make sure we store the room ID
         roomKey = key;
         
         // Hide all forms
@@ -124,18 +126,10 @@ socket.on('joined-room', (encryptedData) => {
         document.getElementById('room-name-display').textContent = roomName || 'Unnamed Room';
         document.getElementById('room-id-display').textContent = `Room ID: ${currentRoom}`;
         document.getElementById('room-description-display').textContent = description || '';
-        document.getElementById('room-members-count').textContent = 
-            maxMembers > 0 ? `Members: ${currentMembers}/${maxMembers}` : `Members: ${currentMembers}`;
         
-        // Update members list
-        const membersList = document.getElementById('members');
-        membersList.innerHTML = '';
-        members.forEach(member => {
-            const li = document.createElement('li');
-            li.textContent = member;
-            if (member === username) li.classList.add('current-user');
-            membersList.appendChild(li);
-        });
+        // Update members list and count
+        updateMembersList(members);
+        updateMembersCount(currentMembers, maxMembers);
         
         addSystemMessage(`Welcome to ${roomName || 'the room'}!`);
         console.log('Room UI updated successfully');
@@ -169,10 +163,13 @@ socket.on('user-left', (encryptedData) => {
 
 socket.on('message', (encryptedData) => {
     try {
-        const { sender, content } = decryptMessage(encryptedData);
-        addMessage(sender, content);
+        const data = decryptMessage(encryptedData);
+        if (data && data.content && data.sender) {
+            addMessage(data.sender, data.content, data.sender === currentUser);
+        }
     } catch (error) {
         console.error('Error processing message:', error);
+        showError('Failed to process message');
     }
 });
 
@@ -202,23 +199,19 @@ function decryptMessage(encryptedData) {
 }
 
 function sendMessage() {
-    const message = messageInput.value.trim();
-    if (!message || !currentRoom) return;
+    const messageInput = document.getElementById('message-input');
+    const content = messageInput.value.trim();
     
-    const messageKey = CryptoJS.lib.WordArray.random(32).toString();
-    const encryptedMessage = CryptoJS.AES.encrypt(message, messageKey).toString();
-    const encryptedKey = CryptoJS.AES.encrypt(messageKey, roomKey).toString();
-    
-    socket.emit('message', {
-        roomId: currentRoom,
-        encryptedData: JSON.stringify({
-            key: encryptedKey,
-            message: encryptedMessage
-        })
-    });
-    
-    addMessage(currentUser, message, true);
-    messageInput.value = '';
+    if (content && currentRoom) { // Make sure we have both content and room ID
+        console.log('Sending message to room:', currentRoom);
+        socket.emit('message', {
+            roomId: currentRoom,
+            content: content
+        });
+        messageInput.value = '';
+    } else if (!currentRoom) {
+        showError('Not connected to a room');
+    }
 }
 
 function addMessage(userId, content, isOwn = false) {

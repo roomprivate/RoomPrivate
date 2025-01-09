@@ -121,101 +121,118 @@ io.on('connection', (socket) => {
 
     socket.on('join-room', async ({ roomId, username, password, persistentKey }) => {
         try {
-            const userPublicKey = userKeys.get(socket.id);
-            if (!userPublicKey) {
-                logger.error('No encryption key registered for socket', { socketId: socket.id });
-                socket.emit('error', { message: 'No encryption key registered. Please refresh the page.' });
-                return;
-            }
-
-            const privDB = await PrivDB.getInstance();
-            const room = await privDB.getRoom(roomId);
+            const db = await PrivDB.getInstance();
+            const room = await db.getRoom(roomId);
+            
             if (!room) {
-                socket.emit('error', { message: 'Room not found' });
-                return;
+                throw new Error('Room not found');
             }
 
-            if (room.hasPassword() && !room.validatePassword(password)) {
-                socket.emit('error', { message: 'Invalid password' });
-                return;
+            // Check password if room has one
+            if (room.encryptedPassword) {
+                const hashedPassword = CryptoJS.SHA256(password).toString();
+                if (hashedPassword !== room.encryptedPassword) {
+                    throw new Error('Invalid password');
+                }
             }
 
             const userId = await UserIdentifier.generateUserId(username, socket.handshake.address, persistentKey);
-            
-            const connectedMembers = rooms.get(roomId) || new Map();
-            const existingConnectedUser = Array.from(connectedMembers.values()).find(u => 
-                u.username.toLowerCase() === username.toLowerCase() &&
-                (!persistentKey || u.persistentId !== userId)
-            );
-            
-            const existingRoomMember = Object.values(room.members).find(m => 
-                m.userId !== userId && 
-                m.username?.toLowerCase() === username.toLowerCase()
-            );
+            const userPublicKey = userKeys.get(socket.id);
 
-            if (existingConnectedUser || existingRoomMember) {
-                socket.emit('error', { message: 'Username already taken in this room' });
-                return;
-            }
-
-            if (!room.addMember(userId, username)) {
-                socket.emit('error', { message: 'Room is full' });
-                return;
+            if (!userPublicKey) {
+                throw new Error('User public key not found');
             }
 
             if (!rooms.has(roomId)) {
                 rooms.set(roomId, new Map());
             }
 
-            rooms.get(roomId)!.set(userId, {
+            const roomUsers = rooms.get(roomId)!;
+            roomUsers.set(userId, {
                 username,
                 roomId,
                 socketId: socket.id,
-                persistentId: persistentKey ? userId : undefined,
+                persistentId: persistentKey,
                 publicKey: userPublicKey
             });
 
+            // Join the socket room
             socket.join(roomId);
-            
-            await privDB.updateRoom(room);
 
-            const userRoles = room.getMemberRoles(userId);
-            const connectedUsers = Array.from(rooms.get(roomId)!.values()).map(u => u.username);
+            // Store the room ID in the socket for later use
+            socket.data.roomId = roomId;
 
-            const roomInfo = {
+            // Prepare room data for the new user
+            const roomData = {
                 userId,
+                roomId,
                 roomKey: room.encryptedRoomKey,
                 roomName: room.name,
                 description: room.description,
                 maxMembers: room.maxMembers,
-                currentMembers: connectedUsers.length,
-                members: connectedUsers,
-                roles: room.roles,
-                userRoles
+                currentMembers: roomUsers.size,
+                members: Array.from(roomUsers.values()).map(u => u.username)
             };
 
-            const encryptedRoomInfo = encryptForUser(roomInfo, userPublicKey);
-            socket.emit('joined-room', encryptedRoomInfo);
+            // Send encrypted room data to the new user
+            const encryptedData = encryptForUser(roomData, userPublicKey);
+            socket.emit('joined-room', encryptedData);
 
+            // Notify other users about the new member
             const notification = {
                 userId,
                 username,
-                members: connectedUsers,
-                currentMembers: connectedUsers.length,
-                roles: userRoles
+                members: roomData.members,
+                currentMembers: roomData.currentMembers
             };
 
-            for (const member of connectedMembers.values()) {
-                if (member.socketId !== socket.id && member.publicKey) {
-                    const encryptedNotification = encryptForUser(notification, member.publicKey);
-                    socket.to(member.socketId).emit('user-joined', encryptedNotification);
+            for (const [_, user] of roomUsers) {
+                if (user.socketId !== socket.id && user.publicKey) {
+                    const encryptedNotification = encryptForUser(notification, user.publicKey);
+                    socket.to(user.socketId).emit('user-joined', encryptedNotification);
                 }
             }
 
             logger.info(`User ${userId} joined room ${roomId}`);
-        } catch (error) {
+        } catch (error: any) {
             logger.error('Error joining room:', error);
-            socket.emit('error', { message: 'Failed to join room. Please try again.' });
+            socket.emit('error', { message: error.message || 'Failed to join room' });
+        }
+    });
+
+    socket.on('message', async ({ roomId, content }) => {
+        try {
+            // First check if the room exists in memory
+            const roomUsers = rooms.get(roomId);
+            if (!roomUsers) {
+                throw new Error('Room not found');
+            }
+
+            // Find the sender in the room
+            const sender = Array.from(roomUsers.values()).find(user => user.socketId === socket.id);
+            if (!sender) {
+                throw new Error('User not found in room');
+            }
+
+            // Send message to all users in the room
+            for (const [_, user] of roomUsers) {
+                const userPublicKey = userKeys.get(user.socketId);
+                if (userPublicKey) {
+                    const encryptedMessage = encryptForUser({
+                        type: 'message',
+                        content,
+                        sender: sender.username,
+                        timestamp: new Date().toISOString()
+                    }, userPublicKey);
+                    
+                    io.to(user.socketId).emit('message', encryptedMessage);
+                }
+            }
+
+            logger.info(`Message sent in room ${roomId} by ${sender.username}`);
+        } catch (error: any) {
+            logger.error('Error sending message:', error);
+            socket.emit('error', { message: error.message });
         }
     });
 
