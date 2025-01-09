@@ -1,0 +1,28 @@
+[package]
+name = "encryption"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1.32", features = ["full"] }
+aes-gcm = "0.10.3"
+base64 = "0.21.5"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rand = "0.8.5"
+rsa = "0.9.3"
+sha2 = "0.10"
+hex = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = 'abort'
+strip = true
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["std", "winbase"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

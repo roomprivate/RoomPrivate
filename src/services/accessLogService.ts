@@ -1,6 +1,7 @@
 import { PrismaClient, Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
-import { AccessLogEncryption } from '../utils/accessLogEncryption';
+import { spawn } from 'child_process';
+import { join } from 'path';
 import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
 
 interface AccessLogInput {
@@ -20,6 +21,11 @@ interface EncryptedLogData {
     entropyMark: string;
 }
 
+interface RustEncryptionProcess {
+    process: ReturnType<typeof spawn>;
+    busy: boolean;
+}
+
 const prisma = new PrismaClient();
 
 export class AccessLogService {
@@ -28,8 +34,8 @@ export class AccessLogService {
     private static readonly BATCH_SIZE = 10;
     private static readonly MAX_RETRIES = 3;
     private static readonly WORKERS_COUNT = 4;
-    private static readonly LOG_RETENTION_DAYS = 180; // 6 months
-    private static readonly CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+    private static readonly LOG_RETENTION_DAYS = 180;
+    private static readonly CLEANUP_INTERVAL = 24 * 60 * 60 * 1000;
     
     private static accessAttempts = new Map<string, number[]>();
     private static batchQueue: Array<{
@@ -38,70 +44,148 @@ export class AccessLogService {
         reject: (error: Error) => void
     }> = [];
     private static batchTimeout: NodeJS.Timeout | null = null;
-    private static workers: Worker[] = [];
+    private static workers: RustEncryptionProcess[] = [];
     private static workerIndex = 0;
     private static cleanupInterval: NodeJS.Timeout | null = null;
 
     static {
         if (isMainThread) {
+            // Start Rust encryption processes
             for (let i = 0; i < this.WORKERS_COUNT; i++) {
-                const worker = new Worker(__filename, {
-                    workerData: { AES_KEY: crypto.randomBytes(32), AES_IV: crypto.randomBytes(16) }
+                const rustProcess = spawn(
+                    join(process.cwd(), 'encryption', 'target', 'release', 'room_encryption.exe'),
+                    [],
+                    { stdio: ['pipe', 'pipe', 'pipe'] }
+                );
+                
+                this.workers.push({ process: rustProcess, busy: false });
+                
+                // Handle process exit
+                rustProcess.on('exit', (code) => {
+                    if (code !== 0) {
+                        // Restart the process
+                        const newProcess = spawn(
+                            join(process.cwd(), 'encryption', 'target', 'release', 'room_encryption.exe'),
+                            [],
+                            { stdio: ['pipe', 'pipe', 'pipe'] }
+                        );
+                        this.workers[i] = { process: newProcess, busy: false };
+                    }
                 });
-                this.workers.push(worker);
             }
+            
             this.startCleanupScheduler();
         }
     }
 
-    private static startCleanupScheduler() {
-        // Run cleanup immediately
-        void this.cleanupOldLogs();
-        
-        // Schedule regular cleanup
-        this.cleanupInterval = setInterval(() => {
-            void this.cleanupOldLogs();
-        }, this.CLEANUP_INTERVAL);
-
-        // Ensure cleanup interval is cleared on process exit
-        process.on('beforeExit', () => {
-            if (this.cleanupInterval) {
-                clearInterval(this.cleanupInterval);
-            }
-        });
+    private static getNextWorker(): RustEncryptionProcess {
+        // Find first non-busy worker
+        let worker = this.workers.find(w => !w.busy);
+        if (!worker) {
+            // If all workers are busy, use round-robin
+            this.workerIndex = (this.workerIndex + 1) % this.WORKERS_COUNT;
+            worker = this.workers[this.workerIndex];
+        }
+        worker.busy = true;
+        return worker;
     }
 
-    private static async cleanupOldLogs(): Promise<void> {
-        try {
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - this.LOG_RETENTION_DAYS);
-            
-            await prisma.$transaction(async (tx) => {
-                // Delete in batches to avoid memory issues
-                while (true) {
-                    const result = await tx.$executeRaw`
-                        WITH deleted AS (
-                            SELECT id FROM "AccessLog"
-                            WHERE "encryptedTimestamp" < ${cutoffDate.toISOString()}
-                            LIMIT 1000
-                            FOR UPDATE SKIP LOCKED
-                        )
-                        DELETE FROM "AccessLog"
-                        WHERE id IN (SELECT id FROM deleted)
-                        RETURNING id
-                    `;
-                    
-                    if (result === 0) break;
+    private static async encryptFieldInRust(value: string): Promise<{ encrypted: string, publicKey: string }> {
+        return new Promise((resolve, reject) => {
+            const worker = this.getNextWorker();
+            const { process } = worker;
+
+            if (!process.stdout || !process.stderr || !process.stdin) {
+                worker.busy = false;
+                console.error('Process streams not available');
+                reject(new Error('Process streams not available'));
+                return;
+            }
+
+            const aesKey = crypto.randomBytes(32);
+            const aesIv = crypto.randomBytes(12);
+
+            const request = {
+                value,
+                aes_key: aesKey.toString('base64'),
+                aes_iv: aesIv.toString('base64')
+            };
+
+            let responseData = '';
+
+            process.stdout.on('data', (data) => {
+                responseData += data.toString();
+                const lines = responseData.split('\n');
+                
+                // Process all complete lines
+                while (lines.length > 1) {
+                    const line = lines.shift()!.trim();
+                    if (line) {
+                        try {
+                            const result = JSON.parse(line);
+                            if (result.error) {
+                                console.error('Encryption service error:', result.error);
+                                reject(new Error(`Encryption failed: ${result.error}`));
+                                return;
+                            }
+                            if (!result.encrypted || !result.public_key) {
+                                console.error('Invalid response from encryption service:', result);
+                                reject(new Error('Invalid response from encryption service'));
+                                return;
+                            }
+                            worker.busy = false;
+                            resolve({
+                                encrypted: result.encrypted,
+                                publicKey: result.public_key
+                            });
+                            return;
+                        } catch (error) {
+                            console.error('Failed to parse encryption service response:', error);
+                            reject(new Error(`Encryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
+                            return;
+                        }
+                    }
+                }
+                
+                // Keep the last incomplete line
+                responseData = lines[0] || '';
+            });
+
+            process.stderr.once('data', (data) => {
+                worker.busy = false;
+                const errorMsg = data.toString().trim();
+                console.error('Encryption service error:', errorMsg);
+                reject(new Error(`Encryption failed: ${errorMsg}`));
+            });
+
+            process.on('error', (error) => {
+                worker.busy = false;
+                console.error('Encryption process error:', error);
+                reject(new Error(`Encryption process error: ${error.message}`));
+            });
+
+            process.on('exit', (code) => {
+                if (code !== 0) {
+                    worker.busy = false;
+                    console.error(`Encryption process exited with code ${code}`);
+                    reject(new Error(`Encryption process exited with code ${code}`));
                 }
             });
-        } catch {
-            // Silently fail cleanup - will retry next interval
-        }
-    }
 
-    private static getNextWorker(): Worker {
-        this.workerIndex = (this.workerIndex + 1) % this.WORKERS_COUNT;
-        return this.workers[this.workerIndex];
+            try {
+                process.stdin.write(JSON.stringify(request) + '\n', (error) => {
+                    if (error) {
+                        worker.busy = false;
+                        console.error('Failed to write to encryption service:', error);
+                        reject(error);
+                    }
+                });
+            } catch (error) {
+                worker.busy = false;
+                console.error('Failed to write to encryption service:', error);
+                reject(error);
+            }
+        });
     }
 
     private static async processBatchWithRetry(values: EncryptedLogData[], retries = 0): Promise<void> {
@@ -164,21 +248,6 @@ export class AccessLogService {
         }, 100);
     }
 
-    private static async encryptFieldInWorker(value: string): Promise<{ encrypted: string, publicKey: string }> {
-        return new Promise((resolve, reject) => {
-            const worker = this.getNextWorker();
-            worker.postMessage({ value });
-            
-            const handler = (result: { encrypted: string, publicKey: string }) => {
-                worker.off('message', handler);
-                resolve(result);
-            };
-            
-            worker.on('message', handler);
-            worker.on('error', reject);
-        });
-    }
-
     private static isRateLimited(ip: string): boolean {
         const now = Date.now();
         const attempts = this.accessAttempts.get(ip) || [];
@@ -216,12 +285,54 @@ export class AccessLogService {
         await Promise.all(promises);
     }
 
+    private static async cleanupOldLogs(): Promise<void> {
+        try {
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - this.LOG_RETENTION_DAYS);
+            
+            await prisma.$transaction(async (tx) => {
+                while (true) {
+                    const result = await tx.$executeRaw`
+                        WITH deleted AS (
+                            SELECT id FROM "AccessLog"
+                            WHERE "encryptedTimestamp" < ${cutoffDate.toISOString()}
+                            LIMIT 1000
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        DELETE FROM "AccessLog"
+                        WHERE id IN (SELECT id FROM deleted)
+                        RETURNING id
+                    `;
+                    
+                    if (result === 0) break;
+                }
+            });
+        } catch {
+            // Silently fail cleanup - will retry next interval
+        }
+    }
+
+    private static startCleanupScheduler() {
+        void this.cleanupOldLogs();
+        
+        this.cleanupInterval = setInterval(() => {
+            void this.cleanupOldLogs();
+        }, this.CLEANUP_INTERVAL);
+
+        process.on('beforeExit', () => {
+            if (this.cleanupInterval) {
+                clearInterval(this.cleanupInterval);
+            }
+        });
+    }
+
     static async logAccess(data: AccessLogInput): Promise<void> {
         if (this.isRateLimited(data.userIp)) {
             return;
         }
 
         try {
+            console.log('Starting encryption for log entry');
             const [
                 encryptedIp,
                 encryptedGeoLoc,
@@ -229,13 +340,29 @@ export class AccessLogService {
                 encryptedDevice,
                 encryptedTimestamp
             ] = await Promise.all([
-                this.encryptFieldInWorker(data.userIp),
-                this.encryptFieldInWorker(data.userGeoLoc),
-                this.encryptFieldInWorker(data.platform),
-                this.encryptFieldInWorker(data.device),
-                this.encryptFieldInWorker(new Date().toISOString())
+                this.encryptFieldInRust(data.userIp).catch(error => {
+                    console.error('Failed to encrypt IP:', error);
+                    throw error;
+                }),
+                this.encryptFieldInRust(data.userGeoLoc).catch(error => {
+                    console.error('Failed to encrypt GeoLoc:', error);
+                    throw error;
+                }),
+                this.encryptFieldInRust(data.platform).catch(error => {
+                    console.error('Failed to encrypt Platform:', error);
+                    throw error;
+                }),
+                this.encryptFieldInRust(data.device).catch(error => {
+                    console.error('Failed to encrypt Device:', error);
+                    throw error;
+                }),
+                this.encryptFieldInRust(new Date().toISOString()).catch(error => {
+                    console.error('Failed to encrypt Timestamp:', error);
+                    throw error;
+                })
             ]);
 
+            console.log('Successfully encrypted all fields');
             const entropyMarkBase64 = crypto.randomBytes(32).toString('base64');
 
             const logData: EncryptedLogData = {
@@ -249,7 +376,18 @@ export class AccessLogService {
             };
 
             return new Promise((resolve, reject) => {
-                this.batchQueue.push({ data: logData, resolve, reject });
+                console.log('Queueing log entry for batch processing');
+                this.batchQueue.push({ 
+                    data: logData, 
+                    resolve: () => {
+                        console.log('Successfully processed log entry');
+                        resolve();
+                    }, 
+                    reject: (error) => {
+                        console.error('Failed to process log entry:', error);
+                        reject(error);
+                    }
+                });
 
                 if (this.batchQueue.length >= this.BATCH_SIZE) {
                     void this.processBatch();
@@ -258,41 +396,8 @@ export class AccessLogService {
                 }
             });
         } catch (error) {
-            throw new Error('Access logging failed');
+            console.error('Access logging failed:', error);
+            throw new Error(`Access logging failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     }
-}
-
-if (!isMainThread) {
-    const { AES_KEY, AES_IV } = workerData;
-
-    parentPort?.on('message', async ({ value }) => {
-        try {
-            const cipher = crypto.createCipheriv('aes-256-gcm', AES_KEY, AES_IV);
-            let encrypted = cipher.update(value, 'utf8', 'base64');
-            encrypted += cipher.final('base64');
-            const authTag = cipher.getAuthTag();
-
-            const combined = Buffer.concat([
-                AES_IV,
-                Buffer.from(encrypted, 'base64'),
-                authTag
-            ]).toString('base64');
-
-            const { publicKey } = await AccessLogEncryption.encryptAccessLog({
-                userIp: AES_KEY.toString('base64'),
-                userGeoLoc: '',
-                platform: '',
-                device: '',
-                timestamp: new Date()
-            });
-
-            parentPort?.postMessage({
-                encrypted: combined,
-                publicKey
-            });
-        } catch (error) {
-            parentPort?.emit('error', error);
-        }
-    });
 }
