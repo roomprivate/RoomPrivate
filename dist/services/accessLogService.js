@@ -32,59 +32,100 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 var _a;
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AccessLogService = void 0;
 const client_1 = require("@prisma/client");
 const crypto = __importStar(require("crypto"));
-const accessLogEncryption_1 = require("../utils/accessLogEncryption");
+const child_process_1 = require("child_process");
+const path_1 = require("path");
+const os_1 = __importDefault(require("os"));
 const worker_threads_1 = require("worker_threads");
+const encryptionBinary_1 = require("../utils/encryptionBinary");
+const fs = __importStar(require("fs"));
 const prisma = new client_1.PrismaClient();
 class AccessLogService {
-    static startCleanupScheduler() {
-        // Run cleanup immediately
-        void this.cleanupOldLogs();
-        // Schedule regular cleanup
-        this.cleanupInterval = setInterval(() => {
-            void this.cleanupOldLogs();
-        }, this.CLEANUP_INTERVAL);
-        // Ensure cleanup interval is cleared on process exit
-        process.on('beforeExit', () => {
-            if (this.cleanupInterval) {
-                clearInterval(this.cleanupInterval);
+    static getNextWorker() {
+        // Find first non-busy worker
+        let worker = this.workers.find(w => !w.busy);
+        if (!worker) {
+            // If all workers are busy, use round-robin
+            this.workerIndex = (this.workerIndex + 1) % this.WORKERS_COUNT;
+            worker = this.workers[this.workerIndex];
+        }
+        worker.busy = true;
+        return worker;
+    }
+    static async encryptFieldInRust(value) {
+        return new Promise((resolve, reject) => {
+            const worker = this.getNextWorker();
+            const { process } = worker;
+            if (!process.stdout || !process.stderr || !process.stdin) {
+                worker.busy = false;
+                console.error('Process streams not available');
+                reject(new Error('Process streams not available'));
+                return;
+            }
+            const aesKey = crypto.randomBytes(32);
+            const aesIv = crypto.randomBytes(12);
+            const request = {
+                type: 'encrypt',
+                value,
+                aes_key: aesKey.toString('base64'),
+                aes_iv: aesIv.toString('base64')
+            };
+            let responseData = '';
+            process.stdout.on('data', (data) => {
+                responseData += data.toString();
+                const lines = responseData.split('\n');
+                // Process all complete lines
+                while (lines.length > 1) {
+                    const line = lines.shift().trim();
+                    if (line) {
+                        try {
+                            const result = JSON.parse(line);
+                            if (result.type === 'error') {
+                                console.error('Encryption service error:', result.error);
+                                reject(new Error(`Encryption failed: ${result.error}`));
+                                return;
+                            }
+                            if (result.type !== 'encrypt' || !result.encrypted || !result.public_key) {
+                                console.error('Invalid response from encryption service:', result);
+                                reject(new Error('Invalid response from encryption service'));
+                                return;
+                            }
+                            worker.busy = false;
+                            resolve({
+                                encrypted: result.encrypted,
+                                publicKey: result.public_key
+                            });
+                            return;
+                        }
+                        catch (error) {
+                            console.error('Failed to parse encryption service response:', error);
+                            reject(new Error(`Encryption failed: ${error instanceof Error ? error.message : 'Unknown error'}`));
+                            return;
+                        }
+                    }
+                }
+                // Keep the last incomplete line
+                responseData = lines[0] || '';
+            });
+            process.stderr?.on('data', (data) => {
+                console.error('Encryption process error:', data.toString());
+                reject(new Error(`Encryption process error: ${data.toString()}`));
+            });
+            try {
+                process.stdin.write(JSON.stringify(request) + '\n');
+            }
+            catch (error) {
+                worker.busy = false;
+                reject(error);
             }
         });
-    }
-    static async cleanupOldLogs() {
-        try {
-            const cutoffDate = new Date();
-            cutoffDate.setDate(cutoffDate.getDate() - this.LOG_RETENTION_DAYS);
-            await prisma.$transaction(async (tx) => {
-                // Delete in batches to avoid memory issues
-                while (true) {
-                    const result = await tx.$executeRaw `
-                        WITH deleted AS (
-                            SELECT id FROM "AccessLog"
-                            WHERE "encryptedTimestamp" < ${cutoffDate.toISOString()}
-                            LIMIT 1000
-                            FOR UPDATE SKIP LOCKED
-                        )
-                        DELETE FROM "AccessLog"
-                        WHERE id IN (SELECT id FROM deleted)
-                        RETURNING id
-                    `;
-                    if (result === 0)
-                        break;
-                }
-            });
-        }
-        catch {
-            // Silently fail cleanup - will retry next interval
-        }
-    }
-    static getNextWorker() {
-        this.workerIndex = (this.workerIndex + 1) % this.WORKERS_COUNT;
-        return this.workers[this.workerIndex];
     }
     static async processBatchWithRetry(values, retries = 0) {
         try {
@@ -142,18 +183,6 @@ class AccessLogService {
             void this.processBatch();
         }, 100);
     }
-    static async encryptFieldInWorker(value) {
-        return new Promise((resolve, reject) => {
-            const worker = this.getNextWorker();
-            worker.postMessage({ value });
-            const handler = (result) => {
-                worker.off('message', handler);
-                resolve(result);
-            };
-            worker.on('message', handler);
-            worker.on('error', reject);
-        });
-    }
     static isRateLimited(ip) {
         const now = Date.now();
         const attempts = this.accessAttempts.get(ip) || [];
@@ -184,40 +213,84 @@ class AccessLogService {
         }
         await Promise.all(promises);
     }
-    static async logAccess(data) {
-        if (this.isRateLimited(data.userIp)) {
-            return;
-        }
+    static async cleanupOldLogs() {
         try {
-            const [encryptedIp, encryptedGeoLoc, encryptedPlatform, encryptedDevice, encryptedTimestamp] = await Promise.all([
-                this.encryptFieldInWorker(data.userIp),
-                this.encryptFieldInWorker(data.userGeoLoc),
-                this.encryptFieldInWorker(data.platform),
-                this.encryptFieldInWorker(data.device),
-                this.encryptFieldInWorker(new Date().toISOString())
-            ]);
-            const entropyMarkBase64 = crypto.randomBytes(32).toString('base64');
-            const logData = {
-                encryptedIp: encryptedIp.encrypted,
-                encryptedGeoLoc: encryptedGeoLoc.encrypted,
-                encryptedPlatform: encryptedPlatform.encrypted,
-                encryptedDevice: encryptedDevice.encrypted,
-                encryptedTimestamp: encryptedTimestamp.encrypted,
-                publicKey: encryptedIp.publicKey,
-                entropyMark: entropyMarkBase64
-            };
-            return new Promise((resolve, reject) => {
-                this.batchQueue.push({ data: logData, resolve, reject });
-                if (this.batchQueue.length >= this.BATCH_SIZE) {
-                    void this.processBatch();
-                }
-                else {
-                    this.scheduleBatchProcessing();
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - this.LOG_RETENTION_DAYS);
+            await prisma.$transaction(async (tx) => {
+                while (true) {
+                    const result = await tx.$executeRaw `
+                        WITH deleted AS (
+                            SELECT id FROM "AccessLog"
+                            WHERE "encryptedTimestamp" < ${cutoffDate.toISOString()}
+                            LIMIT 1000
+                            FOR UPDATE SKIP LOCKED
+                        )
+                        DELETE FROM "AccessLog"
+                        WHERE id IN (SELECT id FROM deleted)
+                        RETURNING id
+                    `;
+                    if (result === 0)
+                        break;
                 }
             });
         }
+        catch {
+            // Silently fail cleanup - will retry next interval
+        }
+    }
+    static startCleanupScheduler() {
+        void this.cleanupOldLogs();
+        this.cleanupInterval = setInterval(() => {
+            void this.cleanupOldLogs();
+        }, this.CLEANUP_INTERVAL);
+        process.on('beforeExit', () => {
+            if (this.cleanupInterval) {
+                clearInterval(this.cleanupInterval);
+            }
+        });
+    }
+    static async encryptLogEntry(data) {
+        try {
+            const response = await encryptionBinary_1.encryptionBinary.sendCommand({
+                type: 'encrypt',
+                value: JSON.stringify(data),
+                aes_key: crypto.randomBytes(32).toString('base64'),
+                aes_iv: crypto.randomBytes(12).toString('base64')
+            });
+            return response.encrypted;
+        }
         catch (error) {
-            throw new Error('Access logging failed');
+            console.error('Failed to encrypt log entry:', error);
+            throw new Error(`Failed to encrypt log entry: ${error}`);
+        }
+    }
+    static async logAccess(dataOrUserId, roomId, action) {
+        try {
+            let data;
+            if (typeof dataOrUserId === 'string') {
+                if (!roomId || !action) {
+                    throw new Error('roomId and action are required when passing userId');
+                }
+                data = {
+                    userId: dataOrUserId,
+                    roomId,
+                    action,
+                    timestamp: new Date().toISOString()
+                };
+            }
+            else {
+                if (this.isRateLimited(dataOrUserId.userIp)) {
+                    return;
+                }
+                data = dataOrUserId;
+            }
+            const encryptedData = await this.encryptLogEntry(data);
+            await fs.promises.appendFile('access.log', encryptedData + '\n');
+        }
+        catch (error) {
+            console.error('Failed to log access:', error);
+            throw new Error(`Failed to log access: ${error}`);
         }
     }
 }
@@ -228,8 +301,8 @@ AccessLogService.RATE_LIMIT_MAX = 5;
 AccessLogService.BATCH_SIZE = 10;
 AccessLogService.MAX_RETRIES = 3;
 AccessLogService.WORKERS_COUNT = 4;
-AccessLogService.LOG_RETENTION_DAYS = 180; // 6 months
-AccessLogService.CLEANUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+AccessLogService.LOG_RETENTION_DAYS = 180;
+AccessLogService.CLEANUP_INTERVAL = 24 * 60 * 60 * 1000;
 AccessLogService.accessAttempts = new Map();
 AccessLogService.batchQueue = [];
 AccessLogService.batchTimeout = null;
@@ -238,42 +311,22 @@ AccessLogService.workerIndex = 0;
 AccessLogService.cleanupInterval = null;
 (() => {
     if (worker_threads_1.isMainThread) {
+        // Start Rust encryption processes
+        const isWindows = os_1.default.platform() === 'win32';
+        const binaryName = isWindows ? 'encryption.exe' : 'encryption';
+        const binaryPath = (0, path_1.join)(process.cwd(), 'encryption', 'target', 'release', binaryName);
         for (let i = 0; i < _a.WORKERS_COUNT; i++) {
-            const worker = new worker_threads_1.Worker(__filename, {
-                workerData: { AES_KEY: crypto.randomBytes(32), AES_IV: crypto.randomBytes(16) }
+            const rustProcess = (0, child_process_1.spawn)(binaryPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+            _a.workers.push({ process: rustProcess, busy: false });
+            // Handle process exit
+            rustProcess.on('exit', (code) => {
+                if (code !== 0) {
+                    // Restart the process
+                    const newProcess = (0, child_process_1.spawn)(binaryPath, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+                    _a.workers[i] = { process: newProcess, busy: false };
+                }
             });
-            _a.workers.push(worker);
         }
         _a.startCleanupScheduler();
     }
 })();
-if (!worker_threads_1.isMainThread) {
-    const { AES_KEY, AES_IV } = worker_threads_1.workerData;
-    worker_threads_1.parentPort?.on('message', async ({ value }) => {
-        try {
-            const cipher = crypto.createCipheriv('aes-256-gcm', AES_KEY, AES_IV);
-            let encrypted = cipher.update(value, 'utf8', 'base64');
-            encrypted += cipher.final('base64');
-            const authTag = cipher.getAuthTag();
-            const combined = Buffer.concat([
-                AES_IV,
-                Buffer.from(encrypted, 'base64'),
-                authTag
-            ]).toString('base64');
-            const { publicKey } = await accessLogEncryption_1.AccessLogEncryption.encryptAccessLog({
-                userIp: AES_KEY.toString('base64'),
-                userGeoLoc: '',
-                platform: '',
-                device: '',
-                timestamp: new Date()
-            });
-            worker_threads_1.parentPort?.postMessage({
-                encrypted: combined,
-                publicKey
-            });
-        }
-        catch (error) {
-            worker_threads_1.parentPort?.emit('error', error);
-        }
-    });
-}

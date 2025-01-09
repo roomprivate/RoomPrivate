@@ -1,48 +1,72 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PrivDB = void 0;
 const client_1 = require("@prisma/client");
 const Room_1 = require("../entities/Room");
-const CryptoJS = __importStar(require("crypto-js"));
 const logger_1 = require("../utils/logger");
-const uuid_1 = require("uuid");
 const wordLists_1 = require("../utils/wordLists");
+const child_process_1 = require("child_process");
+const path_1 = __importDefault(require("path"));
+const os_1 = __importDefault(require("os"));
+const encryptionBinary_1 = require("../utils/encryptionBinary");
 class PrivDB {
     constructor() {
+        this.encryptionProcess = null;
         this.prisma = new client_1.PrismaClient();
+        this.startEncryptionProcess();
+    }
+    startEncryptionProcess() {
+        const isWindows = os_1.default.platform() === 'win32';
+        const binaryName = isWindows ? 'encryption.exe' : 'encryption';
+        const executablePath = path_1.default.join(process.cwd(), 'encryption', 'target', 'release', binaryName);
+        this.encryptionProcess = (0, child_process_1.spawn)(executablePath, [], {
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+        this.encryptionProcess.stderr?.on('data', (data) => {
+            logger_1.logger.error('Encryption process error:', data.toString());
+        });
+        this.encryptionProcess.on('error', (error) => {
+            logger_1.logger.error('Failed to start encryption process:', error);
+            this.encryptionProcess = null;
+        });
+        this.encryptionProcess.on('exit', (code) => {
+            logger_1.logger.error(`Encryption process exited with code ${code}`);
+            this.encryptionProcess = null;
+        });
+    }
+    async sendToRustProcess(request) {
+        if (!this.encryptionProcess || !this.encryptionProcess.stdin || !this.encryptionProcess.stdout) {
+            this.startEncryptionProcess();
+            if (!this.encryptionProcess || !this.encryptionProcess.stdin || !this.encryptionProcess.stdout) {
+                throw new Error('Failed to start encryption process');
+            }
+        }
+        return new Promise((resolve, reject) => {
+            const responseHandler = (data) => {
+                try {
+                    const response = JSON.parse(data.toString());
+                    if (response.error) {
+                        reject(new Error(response.error));
+                        return;
+                    }
+                    resolve(response);
+                }
+                catch (error) {
+                    reject(error);
+                }
+            };
+            this.encryptionProcess.stdout.once('data', responseHandler);
+            try {
+                this.encryptionProcess.stdin.write(JSON.stringify(request) + '\n');
+            }
+            catch (error) {
+                this.encryptionProcess.stdout.removeListener('data', responseHandler);
+                reject(error);
+            }
+        });
     }
     static async getInstance() {
         if (!PrivDB.instance) {
@@ -52,11 +76,19 @@ class PrivDB {
     }
     async createRoom(data) {
         try {
-            const id = (0, uuid_1.v4)();
-            const encryptedPassword = data.password ?
-                CryptoJS.SHA256(data.password).toString() :
-                undefined;
-            const roomKey = CryptoJS.lib.WordArray.random(32).toString();
+            // Generate UUID using Rust service
+            const idResponse = await this.sendToRustProcess({
+                type: 'generate_uuid'
+            });
+            const id = idResponse.uuid;
+            // Hash password using Rust service if provided
+            let encryptedPassword;
+            if (data.password) {
+                const hashResponse = await this.hashPassword(data.password);
+                encryptedPassword = hashResponse;
+            }
+            // Generate room key using Rust service
+            const roomKey = await this.generateRoomKey();
             const roomName = data.name || (0, wordLists_1.generateRoomName)();
             const room = new Room_1.Room(id, roomName, roomKey, data.description, data.maxMembers || 0, encryptedPassword);
             await this.prisma.room.create({
@@ -139,6 +171,29 @@ class PrivDB {
         catch (error) {
             logger_1.logger.error('Error deleting room:', error);
             throw error;
+        }
+    }
+    async generateRoomKey() {
+        try {
+            const response = await encryptionBinary_1.encryptionBinary.sendCommand({
+                type: 'generate_room_key'
+            });
+            return response.key;
+        }
+        catch (error) {
+            throw new Error(`Failed to generate room key: ${error}`);
+        }
+    }
+    async hashPassword(password) {
+        try {
+            const response = await encryptionBinary_1.encryptionBinary.sendCommand({
+                type: 'hash_password',
+                password
+            });
+            return response.hash;
+        }
+        catch (error) {
+            throw new Error(`Failed to hash password: ${error}`);
         }
     }
 }

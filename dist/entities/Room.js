@@ -1,41 +1,7 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Room = exports.Permission = void 0;
-const uuid_1 = require("uuid");
-const CryptoJS = __importStar(require("crypto-js"));
+const encryptionBinary_1 = require("../utils/encryptionBinary");
 const wordLists_1 = require("../utils/wordLists");
 var Permission;
 (function (Permission) {
@@ -60,11 +26,20 @@ class Room {
     hasPassword() {
         return !!this.encryptedPassword;
     }
-    validatePassword(password) {
+    async validatePassword(password) {
         if (!this.encryptedPassword)
             return true;
-        const hashedPassword = CryptoJS.SHA256(password).toString();
-        return hashedPassword === this.encryptedPassword;
+        try {
+            const response = await encryptionBinary_1.encryptionBinary.sendCommand({
+                type: 'hash_password',
+                password
+            });
+            return response.hash === this.encryptedPassword;
+        }
+        catch (error) {
+            console.error('Failed to validate password:', error);
+            return false;
+        }
     }
     addMember(userId, username) {
         if (this.maxMembers > 0 && Object.keys(this.members).length >= this.maxMembers) {
@@ -93,13 +68,34 @@ class Room {
         };
     }
     static async createRoom(hasPassword, password, description, maxMembers = 0) {
-        const id = (0, uuid_1.v4)();
-        const name = (0, wordLists_1.generateRoomName)();
-        const encryptedRoomKey = CryptoJS.SHA256(id).toString();
-        const encryptedPassword = hasPassword && password
-            ? CryptoJS.SHA256(password).toString()
-            : undefined;
-        return new Room(id, name, encryptedRoomKey, description, maxMembers, encryptedPassword);
+        try {
+            // Generate UUID using Rust service
+            const idResponse = await encryptionBinary_1.encryptionBinary.sendCommand({
+                type: 'generate_uuid'
+            });
+            const id = idResponse.uuid;
+            // Generate room name
+            const name = (0, wordLists_1.generateRoomName)();
+            // Generate room key using Rust service
+            const keyResponse = await encryptionBinary_1.encryptionBinary.sendCommand({
+                type: 'generate_room_key'
+            });
+            const encryptedRoomKey = keyResponse.key;
+            // Hash password if provided using Rust service
+            let encryptedPassword;
+            if (hasPassword && password) {
+                const passwordResponse = await encryptionBinary_1.encryptionBinary.sendCommand({
+                    type: 'hash_password',
+                    password
+                });
+                encryptedPassword = passwordResponse.hash;
+            }
+            return new Room(id, name, encryptedRoomKey, description, maxMembers, encryptedPassword);
+        }
+        catch (error) {
+            console.error('Failed to create room:', error);
+            throw new Error(`Failed to create room: ${error}`);
+        }
     }
 }
 exports.Room = Room;
