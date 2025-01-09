@@ -4,6 +4,6 @@ To DO:
 
 2 - fix the room ID null in the chat screen (done)
 
-3 - Encrypt message locally
+3 - Encrypt message locally(can be vulnerable)
 
-4 -
+4 - 
