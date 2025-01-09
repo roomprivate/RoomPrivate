@@ -1,16 +1,72 @@
 import { PrismaClient } from '@prisma/client';
 import { Room, RoomMember } from '../entities/Room';
-import * as CryptoJS from 'crypto-js';
 import { logger } from '../utils/logger';
-import { v4 as uuidv4 } from 'uuid';
 import { generateRoomName } from '../utils/wordLists';
+import { spawn } from 'child_process';
+import path from 'path';
 
 export class PrivDB {
     private static instance: PrivDB;
     private prisma: PrismaClient;
+    private encryptionProcess: ReturnType<typeof spawn> | null = null;
 
     private constructor() {
         this.prisma = new PrismaClient();
+        this.startEncryptionProcess();
+    }
+
+    private startEncryptionProcess() {
+        const executablePath = path.join(process.cwd(), 'encryption', 'target', 'release', 'encryption.exe');
+        this.encryptionProcess = spawn(executablePath, [], {
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        this.encryptionProcess.stderr?.on('data', (data) => {
+            logger.error('Encryption process error:', data.toString());
+        });
+
+        this.encryptionProcess.on('error', (error) => {
+            logger.error('Failed to start encryption process:', error);
+            this.encryptionProcess = null;
+        });
+
+        this.encryptionProcess.on('exit', (code) => {
+            logger.error(`Encryption process exited with code ${code}`);
+            this.encryptionProcess = null;
+        });
+    }
+
+    private async sendToRustProcess(request: any): Promise<any> {
+        if (!this.encryptionProcess || !this.encryptionProcess.stdin || !this.encryptionProcess.stdout) {
+            this.startEncryptionProcess();
+            if (!this.encryptionProcess || !this.encryptionProcess.stdin || !this.encryptionProcess.stdout) {
+                throw new Error('Failed to start encryption process');
+            }
+        }
+
+        return new Promise((resolve, reject) => {
+            const responseHandler = (data: Buffer) => {
+                try {
+                    const response = JSON.parse(data.toString());
+                    if (response.error) {
+                        reject(new Error(response.error));
+                        return;
+                    }
+                    resolve(response);
+                } catch (error) {
+                    reject(error);
+                }
+            };
+
+            this.encryptionProcess!.stdout!.once('data', responseHandler);
+
+            try {
+                this.encryptionProcess!.stdin!.write(JSON.stringify(request) + '\n');
+            } catch (error) {
+                this.encryptionProcess!.stdout!.removeListener('data', responseHandler);
+                reject(error);
+            }
+        });
     }
 
     static async getInstance(): Promise<PrivDB> {
@@ -27,12 +83,27 @@ export class PrivDB {
         password?: string
     }): Promise<Room> {
         try {
-            const id = uuidv4();
-            const encryptedPassword = data.password ? 
-                CryptoJS.SHA256(data.password).toString() : 
-                undefined;
+            // Generate UUID using Rust service
+            const idResponse = await this.sendToRustProcess({
+                type: 'generate_uuid'
+            });
+            const id = idResponse.uuid;
 
-            const roomKey = CryptoJS.lib.WordArray.random(32).toString();
+            // Hash password using Rust service if provided
+            let encryptedPassword: string | undefined;
+            if (data.password) {
+                const hashResponse = await this.sendToRustProcess({
+                    type: 'hash_password',
+                    password: data.password
+                });
+                encryptedPassword = hashResponse.hash;
+            }
+
+            // Generate room key using Rust service
+            const keyResponse = await this.sendToRustProcess({
+                type: 'generate_room_key'
+            });
+            const roomKey = keyResponse.key;
             const roomName = data.name || generateRoomName();
 
             const room = new Room(

@@ -53,7 +53,7 @@ export class AccessLogService {
             // Start Rust encryption processes
             for (let i = 0; i < this.WORKERS_COUNT; i++) {
                 const rustProcess = spawn(
-                    join(process.cwd(), 'encryption', 'target', 'release', 'room_encryption.exe'),
+                    join(process.cwd(), 'encryption', 'target', 'release', 'encryption.exe'),
                     [],
                     { stdio: ['pipe', 'pipe', 'pipe'] }
                 );
@@ -65,7 +65,7 @@ export class AccessLogService {
                     if (code !== 0) {
                         // Restart the process
                         const newProcess = spawn(
-                            join(process.cwd(), 'encryption', 'target', 'release', 'room_encryption.exe'),
+                            join(process.cwd(), 'encryption', 'target', 'release', 'encryption.exe'),
                             [],
                             { stdio: ['pipe', 'pipe', 'pipe'] }
                         );
@@ -106,6 +106,7 @@ export class AccessLogService {
             const aesIv = crypto.randomBytes(12);
 
             const request = {
+                type: 'encrypt',
                 value,
                 aes_key: aesKey.toString('base64'),
                 aes_iv: aesIv.toString('base64')
@@ -123,12 +124,12 @@ export class AccessLogService {
                     if (line) {
                         try {
                             const result = JSON.parse(line);
-                            if (result.error) {
+                            if (result.type === 'error') {
                                 console.error('Encryption service error:', result.error);
                                 reject(new Error(`Encryption failed: ${result.error}`));
                                 return;
                             }
-                            if (!result.encrypted || !result.public_key) {
+                            if (result.type !== 'encrypt' || !result.encrypted || !result.public_key) {
                                 console.error('Invalid response from encryption service:', result);
                                 reject(new Error('Invalid response from encryption service'));
                                 return;
@@ -151,38 +152,15 @@ export class AccessLogService {
                 responseData = lines[0] || '';
             });
 
-            process.stderr.once('data', (data) => {
-                worker.busy = false;
-                const errorMsg = data.toString().trim();
-                console.error('Encryption service error:', errorMsg);
-                reject(new Error(`Encryption failed: ${errorMsg}`));
-            });
-
-            process.on('error', (error) => {
-                worker.busy = false;
-                console.error('Encryption process error:', error);
-                reject(new Error(`Encryption process error: ${error.message}`));
-            });
-
-            process.on('exit', (code) => {
-                if (code !== 0) {
-                    worker.busy = false;
-                    console.error(`Encryption process exited with code ${code}`);
-                    reject(new Error(`Encryption process exited with code ${code}`));
-                }
+            process.stderr?.on('data', (data) => {
+                console.error('Encryption process error:', data.toString());
+                reject(new Error(`Encryption process error: ${data.toString()}`));
             });
 
             try {
-                process.stdin.write(JSON.stringify(request) + '\n', (error) => {
-                    if (error) {
-                        worker.busy = false;
-                        console.error('Failed to write to encryption service:', error);
-                        reject(error);
-                    }
-                });
+                process.stdin.write(JSON.stringify(request) + '\n');
             } catch (error) {
                 worker.busy = false;
-                console.error('Failed to write to encryption service:', error);
                 reject(error);
             }
         });

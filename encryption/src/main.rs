@@ -3,16 +3,16 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rand::rngs::OsRng;
+use rand::{rngs::OsRng, RngCore};
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
+use sha2::{Sha256, Digest};
 use std::{
     error::Error,
     fmt,
     io::{self, BufRead, BufReader, Write},
-    process::exit,
-    sync::Mutex,
 };
+use uuid::Uuid;
 
 const RSA_BITS: usize = 2048;
 
@@ -38,6 +38,45 @@ struct EncryptRequest {
 struct EncryptResponse {
     encrypted: String,
     public_key: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+enum Request {
+    #[serde(rename = "encrypt")]
+    Encrypt(EncryptRequest),
+    #[serde(rename = "generate_uuid")]
+    GenerateUuid,
+    #[serde(rename = "hash_password")]
+    HashPassword { password: String },
+    #[serde(rename = "generate_room_key")]
+    GenerateRoomKey,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type")]
+enum Response {
+    #[serde(rename = "encrypt")]
+    Encrypt {
+        encrypted: String,
+        public_key: String,
+    },
+    #[serde(rename = "uuid")]
+    Uuid {
+        uuid: String,
+    },
+    #[serde(rename = "hashed_password")]
+    HashedPassword {
+        hash: String,
+    },
+    #[serde(rename = "room_key")]
+    RoomKey {
+        key: String,
+    },
+    #[serde(rename = "error")]
+    Error {
+        error: String,
+    },
 }
 
 struct EncryptionService {
@@ -76,7 +115,7 @@ impl EncryptionService {
         Ok(encrypted)
     }
 
-    fn process_request(&self, request: EncryptRequest) -> Result<EncryptResponse, Box<dyn Error>> {
+    fn process_encrypt_request(&self, request: EncryptRequest) -> Result<Response, Box<dyn Error>> {
         let aes_key = BASE64
             .decode(&request.aes_key)
             .map_err(|e| EncryptionError(format!("Failed to decode AES key: {}", e)))?;
@@ -84,69 +123,88 @@ impl EncryptionService {
             .decode(&request.aes_iv)
             .map_err(|e| EncryptionError(format!("Failed to decode AES IV: {}", e)))?;
         
-        // Encrypt the value using AES-GCM
         let encrypted_data = self.encrypt_aes(request.value.as_bytes(), &aes_key, &aes_iv)?;
-        
-        // Encrypt the AES key using RSA
         let encrypted_key = self.encrypt_rsa(&aes_key)?;
         
-        Ok(EncryptResponse {
+        Ok(Response::Encrypt {
             encrypted: BASE64.encode(&encrypted_data),
             public_key: BASE64.encode(&encrypted_key),
         })
     }
 
-    fn send_response(&self, response: Result<EncryptResponse, Box<dyn Error>>) -> Result<(), Box<dyn Error>> {
+    fn generate_uuid(&self) -> Response {
+        Response::Uuid {
+            uuid: Uuid::new_v4().to_string(),
+        }
+    }
+
+    fn hash_password(&self, password: String) -> Response {
+        let mut hasher = Sha256::new();
+        hasher.update(password.as_bytes());
+        let hash = hasher.finalize();
+        
+        Response::HashedPassword {
+            hash: format!("{:x}", hash),
+        }
+    }
+
+    fn generate_room_key(&self) -> Response {
+        let mut key = vec![0u8; 32];
+        OsRng.fill_bytes(&mut key);
+        
+        Response::RoomKey {
+            key: BASE64.encode(&key),
+        }
+    }
+
+    fn process_request(&self, request: Request) -> Result<Response, Box<dyn Error>> {
+        match request {
+            Request::Encrypt(req) => self.process_encrypt_request(req),
+            Request::GenerateUuid => Ok(self.generate_uuid()),
+            Request::HashPassword { password } => Ok(self.hash_password(password)),
+            Request::GenerateRoomKey => Ok(self.generate_room_key()),
+        }
+    }
+
+    fn send_response(&self, response: Result<Response, Box<dyn Error>>) -> Result<(), Box<dyn Error>> {
         let stdout = io::stdout();
         let mut handle = stdout.lock();
         
-        match response {
-            Ok(response) => {
-                serde_json::to_writer(&mut handle, &response)?;
-                writeln!(&mut handle)?;
-            }
-            Err(e) => {
-                let error_response = serde_json::json!({
-                    "error": e.to_string()
-                });
-                serde_json::to_writer(&mut handle, &error_response)?;
-                writeln!(&mut handle)?;
-            }
-        }
+        let response = match response {
+            Ok(response) => response,
+            Err(e) => Response::Error {
+                error: e.to_string(),
+            },
+        };
+
+        serde_json::to_writer(&mut handle, &response)?;
+        writeln!(&mut handle)?;
         handle.flush()?;
         Ok(())
     }
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // Configure stdin for binary input
     let stdin = io::stdin();
     let reader = BufReader::new(stdin.lock());
     let service = EncryptionService::new();
 
-    // Process each line
     for line in reader.lines() {
         match line {
             Ok(input) if input.is_empty() => continue,
             Ok(input) => {
-                let request = match serde_json::from_str::<EncryptRequest>(&input) {
+                let request = match serde_json::from_str(&input) {
                     Ok(req) => req,
                     Err(e) => {
-                        if let Err(e) = service.send_response(Err(Box::new(EncryptionError(format!(
+                        service.send_response(Err(Box::new(EncryptionError(format!(
                             "Invalid request: {}", e
-                        ))))) {
-                            eprintln!("Failed to send error response: {}", e);
-                            return Err(e);
-                        }
+                        )))))?;
                         continue;
                     }
                 };
 
                 let result = service.process_request(request);
-                if let Err(e) = service.send_response(result) {
-                    eprintln!("Failed to send response: {}", e);
-                    return Err(e);
-                }
+                service.send_response(result)?;
             }
             Err(e) => {
                 eprintln!("Failed to read input: {}", e);
