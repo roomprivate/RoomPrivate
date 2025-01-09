@@ -16,7 +16,17 @@ function connectWebSocket() {
     
     ws.onclose = () => {
         console.log('WebSocket disconnected');
-        setTimeout(connectWebSocket, 1000);
+        // If we're in a room when disconnected, send leave event when reconnecting
+        const wasInRoom = currentRoom && currentUsername;
+        setTimeout(() => {
+            connectWebSocket();
+            if (wasInRoom) {
+                sendEvent('leave-room', {
+                    roomId: currentRoom,
+                    username: currentUsername
+                });
+            }
+        }, 1000);
     };
     
     ws.onmessage = (event) => {
@@ -265,13 +275,19 @@ function handleMemberJoined(data) {
 
 function handleMemberLeft(data) {
     console.log('Member left:', data);
+    const { username } = data;
     
-    // Update members list
-    updateMembersList(data.members, data.maxMembers);
+    // Clear the members list and update with new data
+    const membersList = document.getElementById('members-list');
+    membersList.innerHTML = '';
+    
+    // Update the members list with remaining members
+    if (data.members) {
+        updateMembersList(data.members, data.maxMembers);
+    }
     
     // Add system message
-    const leftMember = data.members.find(m => m.userId === data.userId);
-    addSystemMessage(`${leftMember ? leftMember.username : 'A member'} has left the room`);
+    addSystemMessage(`${username} has left the room`);
 }
 
 function updateMembersList(members, maxMembers) {
@@ -301,6 +317,7 @@ function updateMembersList(members, maxMembers) {
             </div>
             ${member.userId === currentSocketId ? '<span class="text-xs text-gray-400">(you)</span>' : ''}
         `;
+        memberElement.setAttribute('data-username', member.username);
         membersList.appendChild(memberElement);
     });
     
@@ -486,35 +503,13 @@ function joinRoom(roomId, username, password) {
 }
 
 function leaveRoom() {
-    console.log('Leave room clicked');
-    if (currentRoom) {
-        // Send leave room event
-        sendEvent('leave-room', { 
+    if (ws && ws.readyState === WebSocket.OPEN && currentRoom && currentUsername) {
+        sendEvent('leave-room', {
             roomId: currentRoom,
-            userId: currentUser 
+            username: currentUsername
         });
-        
-        // Clear room state
-        currentRoom = null;
-        currentUser = null;
-        roomKey = null;
-        currentUsername = null;
-        roomMembers.clear();
-        
-        // Clear messages
-        const messagesDiv = document.getElementById('messages');
-        messagesDiv.innerHTML = '';
-        
-        // Reset UI
-        chatContainer.classList.add('hidden');
-        joinContainer.classList.remove('hidden');
-        document.title = 'Chat Room';
-        
-        // Clear input
-        document.getElementById('message-input').value = '';
-        
-        addSystemMessage('You have left the room');
     }
+    window.location.reload();
 }
 
 function formatMessage(text) {
@@ -703,8 +698,20 @@ function handleMessage(data) {
         const messageDiv = document.createElement('div');
         messageDiv.className = 'message-container p-2';
         messageDiv.innerHTML = `
-            <div class="font-semibold text-white">${messageData.sender}</div>
-            <div class="text-gray-100">${messageData.content}</div>
+            <div class="flex items-start space-x-2 p-3 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors">
+                <div class="flex-shrink-0">
+                    <div class="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
+                        <span class="text-white text-sm">${messageData.sender.charAt(0).toUpperCase()}</span>
+                    </div>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline space-x-2">
+                        <span class="font-medium text-white">${messageData.sender}</span>
+                        <span class="text-xs text-gray-400">${new Date(messageData.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div class="mt-1 text-gray-200 break-words">${formatMessage(messageData.content, messageData.mentions)}</div>
+                </div>
+            </div>
         `;
         messagesDiv.appendChild(messageDiv);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -724,91 +731,98 @@ function escapeHtml(unsafe) {
 }
 
 function displayMessage({ username, message, timestamp, isSystem, mentions = [] }) {
-    console.log('Displaying message:', { username, message, timestamp, isSystem, mentions });
-    
-    const messagesDiv = document.getElementById('messages');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = isSystem ? 'text-gray-400 text-sm' : 'message-container';
+    // Check if message has already been displayed
+    const messageId = `${username}-${timestamp}-${message}`;
+    if (displayedMessages.has(messageId)) {
+        return;
+    }
+    displayedMessages.add(messageId);
 
+    const messagesDiv = document.getElementById('messages');
+    const messageElement = document.createElement('div');
+    
+    // Check if user was near bottom before adding new message
+    const isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
+
+    // Rest of the message display logic
+    messageElement.className = `p-4 ${isSystem ? 'bg-gray-800' : 'hover:bg-gray-800'} transition-colors duration-200`;
+    const formattedMessage = formatMessage(message, mentions);
+    
     if (isSystem) {
-        messageDiv.textContent = message;
+        messageElement.innerHTML = `
+            <div class="text-gray-400 text-sm">${formattedMessage}</div>
+        `;
     } else {
-        const time = new Date(timestamp).toLocaleTimeString();
-        messageDiv.innerHTML = `
-            <div class="flex items-start space-x-2">
-                <div class="flex-shrink-0">
-                    <div class="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
-                        <span class="text-white text-sm">${username.charAt(0).toUpperCase()}</span>
-                    </div>
-                </div>
+        messageElement.innerHTML = `
+            <div class="flex items-start">
                 <div class="flex-1">
-                    <div class="flex items-baseline space-x-2">
-                        <span class="font-medium text-white">${username}</span>
-                        <span class="text-xs text-gray-400">${time}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold text-primary-400">${escapeHtml(username)}</span>
+                        <span class="text-xs text-gray-500">${new Date(timestamp).toLocaleTimeString()}</span>
                     </div>
-                    <div class="mt-1 text-gray-200">${formatMessage(message, mentions)}</div>
+                    <div class="text-gray-300 mt-1">${formattedMessage}</div>
                 </div>
             </div>
         `;
     }
-
-    messagesDiv.appendChild(messageDiv);
-    scrollToBottom();
+    
+    messagesDiv.appendChild(messageElement);
+    
+    // Auto-scroll only if user was already near bottom
+    if (isNearBottom) {
+        scrollToBottom();
+    }
 }
 
 function downloadAsText() {
-    const text = messageHistory.map(msg => 
-        `[${new Date(msg.timestamp).toLocaleString()}] ${msg.username}: ${msg.message}`
-    ).join('\n');
+    const messages = document.getElementById('messages').children;
+    let content = '';
     
-    downloadFile(text, 'chat-history.txt', 'text/plain');
+    Array.from(messages).forEach(msg => {
+        if (msg.classList.contains('text-gray-400')) {
+            // System message
+            content += `[System] ${msg.textContent}\n`;
+        } else {
+            // Regular message
+            const username = msg.querySelector('.font-semibold').textContent;
+            const time = msg.querySelector('.text-xs').textContent;
+            const messageText = msg.querySelector('.text-gray-300').textContent;
+            content += `[${time}] ${username}: ${messageText}\n`;
+        }
+    });
+    
+    downloadFile(content, 'chat-messages.txt', 'text/plain');
 }
 
 function downloadAsCSV() {
-    const header = 'Timestamp,Username,Message\n';
-    const csv = messageHistory.map(msg => 
-        `"${msg.timestamp}","${msg.username}","${msg.message.replace(/"/g, '""')}"`
-    ).join('\n');
+    const messages = document.getElementById('messages').children;
+    let content = 'Timestamp,Username,Message\n';
     
-    downloadFile(header + csv, 'chat-history.csv', 'text/csv');
+    Array.from(messages).forEach(msg => {
+        if (msg.classList.contains('text-gray-400')) {
+            // System message
+            content += `${new Date().toISOString()},System,${msg.textContent}\n`;
+        } else {
+            // Regular message
+            const username = msg.querySelector('.font-semibold').textContent;
+            const time = msg.querySelector('.text-xs').textContent;
+            const messageText = msg.querySelector('.text-gray-300').textContent;
+            content += `${time},${username},"${messageText.replace(/"/g, '""')}"\n`;
+        }
+    });
+    
+    downloadFile(content, 'chat-messages.csv', 'text/csv');
 }
 
 function downloadFile(content, filename, type) {
     const blob = new Blob([content], { type: type });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.style.display = 'none';
     a.href = url;
     a.download = filename;
-    document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
 }
-
-// Load app info
-fetch('/info.json')
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(info => {
-        console.log('Loaded app info:', info);
-        // Update all app info elements with fallbacks
-        document.getElementById('app-name').textContent = info.name || 'RoomPrivate';
-        document.getElementById('app-version').textContent = info.version ? `v${info.version}` : 'v0.0.1 Alpha';
-        document.getElementById('app-description').textContent = info.description || 'Secure, end-to-end encrypted chat rooms';
-        document.getElementById('app-author').textContent = info.author || 'Klee & C0de';
-        
-        const websiteLink = document.getElementById('app-website');
-        websiteLink.href = info.website || 'https://room.juliaklee.wtf';
-    })
-    .catch(error => {
-        console.error('Error loading app info:', error);
-        // Keep default values from HTML if info.json fails to load
-    });
 
 function scrollToBottom() {
     const messagesDiv = document.getElementById('messages');
@@ -905,4 +919,67 @@ function setupUIEventListeners() {
         const passwordGroup = document.getElementById('room-password-group');
         passwordGroup.classList.toggle('hidden', !e.target.checked);
     });
+
+    // Add download and leave room button listeners
+    document.getElementById('download-txt').addEventListener('click', downloadAsText);
+    document.getElementById('download-csv').addEventListener('click', downloadAsCSV);
+    document.getElementById('leave-room').addEventListener('click', leaveRoom);
+
+    // Add copy room ID button listener
+    document.getElementById('copy-room-id').addEventListener('click', () => {
+        const roomIdText = document.getElementById('room-id-display').textContent;
+        // Extract just the ID part (assuming format is "Room ID: XXX")
+        const roomId = roomIdText.split(':')[1]?.trim() || roomIdText;
+        navigator.clipboard.writeText(roomId).then(() => {
+            // Change button color temporarily to indicate success
+            const button = document.getElementById('copy-room-id');
+            button.classList.remove('text-gray-400');
+            button.classList.add('text-green-400');
+            setTimeout(() => {
+                button.classList.remove('text-green-400');
+                button.classList.add('text-gray-400');
+            }, 1000);
+        });
+    });
+    
+    // Handle page unload
+    window.addEventListener('beforeunload', () => {
+        if (currentRoom && currentUsername && ws && ws.readyState === WebSocket.OPEN) {
+            sendEvent('leave-room', {
+                roomId: currentRoom,
+                username: currentUsername
+            });
+        }
+    });
 }
+
+// Update the room ID display function to format the ID display
+function updateRoomDisplay(roomName, roomId) {
+    document.getElementById('room-name-display').textContent = roomName;
+    document.getElementById('room-id-display').textContent = `Room ID: ${roomId}`;
+    document.title = `${roomName} - Chat Room`;
+}
+
+// Load app info
+fetch('/info.json')
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(info => {
+        console.log('Loaded app info:', info);
+        // Update all app info elements with fallbacks
+        document.getElementById('app-name').textContent = info.name || 'RoomPrivate';
+        document.getElementById('app-version').textContent = info.version ? `v${info.version}` : 'v0.0.1 Alpha';
+        document.getElementById('app-description').textContent = info.description || 'Secure, end-to-end encrypted chat rooms';
+        document.getElementById('app-author').textContent = info.author || 'Klee & C0de';
+        
+        const websiteLink = document.getElementById('app-website');
+        websiteLink.href = info.website || 'https://room.juliaklee.wtf';
+    })
+    .catch(error => {
+        console.error('Error loading app info:', error);
+        // Keep default values from HTML if info.json fails to load
+    });
