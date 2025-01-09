@@ -4,9 +4,8 @@ To DO:
 
 2 - fix the room ID null in the chat screen (done)
 
-3 - Encrypt message locally(can be vulnerable)
+3 - Encrypt message locally 
 
-<<<<<<< HEAD
 4 - Download message history
 
 5 - Add images and video support
@@ -18,6 +17,3 @@ To DO:
 8 - Add emoji support
 
 9 - Add dark mode
-=======
-4 - 
->>>>>>> f4e3df797e5607e7f9b246bf76b0ff2bcbe8abc3
