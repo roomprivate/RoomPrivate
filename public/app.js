@@ -53,6 +53,9 @@ let isNearBottom = true;
 // Track if user is typing
 let isTyping = false;
 
+// Message history
+let messageHistory = [];
+
 messagesDiv.addEventListener('scroll', () => {
     isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
 });
@@ -187,16 +190,6 @@ document.getElementById('message-input').addEventListener('keypress', (e) => {
     if (e.key === 'Enter') sendMessage();
 });
 
-document.getElementById('leave-room').addEventListener('click', () => {
-    socket.emit('leave-room', { roomId: currentRoom });
-    currentRoom = null;
-    currentUser = null;
-    roomKey = null;
-    chatContainer.classList.add('hidden');
-    joinContainer.classList.remove('hidden');
-    document.title = 'Chat Room';
-});
-
 // Mobile menu handlers
 document.getElementById('toggle-members').addEventListener('click', () => {
     document.querySelector('.members-sidebar').classList.add('active');
@@ -207,134 +200,169 @@ document.querySelector('.close-members').addEventListener('click', () => {
 });
 
 // Socket event handlers
-socket.on('room-created', (encryptedData) => {
+socket.on('message', (data) => {
+    console.log('Received message:', data);
     try {
-        console.log('Received room-created event');
-        const decryptedData = decryptMessage(encryptedData);
-        console.log('Decrypted room data:', decryptedData);
+        const decryptedMessage = decryptMessage(data);
+        console.log('Decrypted message:', decryptedMessage);
         
-        const { userId, roomId, name, description, members, encryptedRoomKey, maxMembers } = decryptedData;
-        
-        currentUser = userId;
-        currentRoom = roomId;
-        currentUsername = document.getElementById('create-username').value;
-        roomKey = encryptedRoomKey;
-        currentRoomMaxMembers = maxMembers;
-        
-        // Join room with all required data
-        socket.emit('joinRoom', { 
-            roomId,
-            username: currentUsername,
-            publicKey,
-            userId: currentUser
+        displayMessage({
+            username: decryptedMessage.sender,
+            message: decryptedMessage.content,
+            timestamp: decryptedMessage.timestamp,
+            isSystem: false
         });
+    } catch (error) {
+        console.error('Error processing message:', error);
+        showError('Failed to decrypt message');
+    }
+});
+
+socket.on('room-created', (encryptedData) => {
+    console.log('Room created raw data:', encryptedData);
+    try {
+        const data = decryptMessage(encryptedData);
+        console.log('Room created decrypted:', data);
         
-        // Hide all forms
+        // Save room info
+        currentUser = data.userId;
+        currentRoom = data.roomId;
+        roomKey = data.encryptedRoomKey;
+        currentUsername = document.getElementById('username').value;
+        
+        // Hide forms, show chat
         joinContainer.classList.add('hidden');
         createRoomContainer.classList.add('hidden');
         joinRoomForm.classList.add('hidden');
-        
-        // Show chat
         chatContainer.classList.remove('hidden');
         
         // Update room info
-        document.getElementById('room-name-display').textContent = name || 'Unnamed Room';
-        document.getElementById('room-id-display').textContent = `Room ID: ${currentRoom}`;
-        document.getElementById('room-description-display').textContent = description || '';
-        document.title = `${name || 'Unnamed Room'} - Chat Room`;
+        document.getElementById('room-name-display').textContent = data.name || 'Unnamed Room';
+        document.getElementById('room-id-display').textContent = `Room ID: ${data.roomId}`;
+        document.getElementById('room-description-display').textContent = data.description || '';
+        document.title = `${data.name || 'Unnamed Room'} - Chat Room`;
         
-        // Update members list and count
-        updateMembersList(members);
-        updateMembersCount(members.length, maxMembers);
+        // Initialize members list
+        if (Array.isArray(data.members)) {
+            updateMembersList(data.members);
+        }
         
-        addSystemMessage(`Welcome to ${name || 'the room'}!`);
-        console.log('Room UI updated successfully');
+        addSystemMessage(`Welcome to ${data.name || 'the room'}!`);
     } catch (error) {
-        console.error('Error processing room-created data:', error);
-        showError('Failed to process room data. Please try again.');
+        console.error('Error handling room created:', error);
+        showError('Failed to create room. Please try again.');
     }
 });
 
 socket.on('room-joined', (encryptedData) => {
+    console.log('Room joined raw data:', encryptedData);
     try {
-        console.log('Received room-joined event');
-        const decryptedData = decryptMessage(encryptedData);
-        console.log('Decrypted room data:', decryptedData);
+        const data = decryptMessage(encryptedData);
+        console.log('Room joined decrypted:', data);
         
-        const { userId, roomId, name, description, members, encryptedRoomKey, maxMembers } = decryptedData;
-        
-        currentUser = userId;
-        currentRoom = roomId;
-        roomKey = encryptedRoomKey;
+        // Save room info
+        currentUser = data.userId;
+        currentRoom = data.roomId;
+        roomKey = data.encryptedRoomKey;
         currentUsername = document.getElementById('username').value;
-        currentRoomMaxMembers = maxMembers;
         
-        // Hide all forms
+        // Hide forms, show chat
         joinContainer.classList.add('hidden');
         createRoomContainer.classList.add('hidden');
         joinRoomForm.classList.add('hidden');
-        
-        // Show chat
         chatContainer.classList.remove('hidden');
         
         // Update room info
-        document.getElementById('room-name-display').textContent = name || 'Unnamed Room';
-        document.getElementById('room-id-display').textContent = `Room ID: ${currentRoom}`;
-        document.getElementById('room-description-display').textContent = description || '';
-        document.title = `${name || 'Unnamed Room'} - Chat Room`;
+        document.getElementById('room-name-display').textContent = data.name || 'Unnamed Room';
+        document.getElementById('room-id-display').textContent = `Room ID: ${data.roomId}`;
+        document.getElementById('room-description-display').textContent = data.description || '';
+        document.title = `${data.name || 'Unnamed Room'} - Chat Room`;
         
-        // Update members list and count
-        updateMembersList(members);
-        updateMembersCount(members.length, maxMembers);
+        // Initialize members list
+        if (Array.isArray(data.members)) {
+            updateMembersList(data.members);
+        }
         
-        addSystemMessage(`Welcome to ${name || 'the room'}!`);
-        console.log('Room UI updated successfully');
+        addSystemMessage(`Welcome to ${data.name || 'the room'}!`);
     } catch (error) {
-        console.error('Error processing room-joined data:', error);
-        showError('Failed to process room data. Please try again.');
+        console.error('Error handling room joined:', error);
+        showError('Failed to join room. Please try again.');
+    }
+});
+
+socket.on('member-update', (encryptedData) => {
+    console.log('Member update raw data:', encryptedData);
+    try {
+        const data = decryptMessage(encryptedData);
+        console.log('Member update decrypted:', data);
+        
+        if (Array.isArray(data.members)) {
+            updateMembersList(data.members);
+        }
+    } catch (error) {
+        console.error('Error handling member update:', error);
     }
 });
 
 socket.on('user-joined', (data) => {
+    console.log('User joined:', data);
     try {
-        const { username } = data;
-        addSystemMessage(`${username} joined the room`);
-        updateMembersList([...document.querySelectorAll('.member-item')].map(el => ({
-            username: el.textContent,
+        // Data is not encrypted for this event
+        const { username, userId, status } = data;
+        
+        // Get current members list
+        const membersList = document.getElementById('members-list');
+        const currentMembers = Array.from(membersList.children).map(el => ({
+            userId: el.dataset.userId,
+            username: el.querySelector('.text-gray-100').textContent,
             status: 'online'
-        })).concat([{ username, status: 'online' }]));
-    } catch (error) {
-        console.error('Error processing user-joined data:', error);
-    }
-});
-
-socket.on('user-left', (encryptedData) => {
-    try {
-        const { userId, username, members, currentMembers } = decryptMessage(encryptedData);
-        updateMembersList(members);
-        updateMembersCount(currentMembers);
-        addSystemMessage(`${username} left the room`);
-    } catch (error) {
-        console.error('Error processing user-left data:', error);
-    }
-});
-
-socket.on('message', (encryptedData) => {
-    try {
-        console.log('Received message:', encryptedData);
-        const data = decryptMessage(encryptedData);
-        console.log('Decrypted message:', data);
-        if (data && data.content) {
-            addMessage({
-                username: data.sender,
-                userId: data.senderId,
-                text: data.content,
-                timestamp: data.timestamp
+        }));
+        
+        // Add new member if not exists
+        if (!currentMembers.find(m => m.userId === userId)) {
+            currentMembers.push({
+                userId,
+                username,
+                status: status || 'online'
             });
+            
+            // Update the list
+            updateMembersList(currentMembers);
+            addSystemMessage(`${username} joined the room`);
         }
     } catch (error) {
-        console.error('Error processing message:', error);
+        console.error('Error handling user joined:', error);
     }
+});
+
+socket.on('user-left', (data) => {
+    console.log('User left:', data);
+    // Remove from roomMembers
+    if (roomMembers.has(data.userId)) {
+        roomMembers.delete(data.userId);
+    }
+    addSystemMessage(`${data.username} left the room`);
+});
+
+socket.on('members-update', (data) => {
+    console.log('Members update:', data);
+    // Clear and rebuild entire roomMembers
+    roomMembers.clear();
+    data.members.forEach(member => {
+        roomMembers.set(member.userId, member);
+    });
+    // Update UI
+    updateMembersList(Array.from(roomMembers.values()));
+});
+
+socket.on('welcome', (data) => {
+    console.log('Welcome data:', data);
+    displayMessage({
+        username: 'System',
+        message: `Welcome to Room ${data.roomId}!`,
+        timestamp: new Date().toISOString(),
+        isSystem: true
+    });
 });
 
 socket.on('error', (error) => {
@@ -371,226 +399,351 @@ function escapeHtml(unsafe) {
         .replace(/'/g, "&#039;");
 }
 
-function createMessageElement(message, isSystem = false) {
+function displayMessage(data) {
+    console.log('Displaying message:', data);
+    const messagesDiv = document.getElementById('messages');
     const messageDiv = document.createElement('div');
+    const isMyMessage = data.username === currentUsername;
+    const isSystem = data.isSystem;
     
-    if (isSystem) {
-        messageDiv.className = 'bg-gray-100 p-3 rounded-lg text-gray-600 text-sm';
-        messageDiv.textContent = message || '';
+    messageDiv.className = 'flex flex-col space-y-1 mb-4';
+    
+    // Message container with proper spacing and alignment
+    const messageContent = document.createElement('div');
+    messageContent.className = `flex items-start space-x-2 ${isMyMessage ? 'justify-end' : 'justify-start'} ${isSystem ? 'justify-center' : ''}`;
+    
+    if (!isSystem) {
+        // Avatar circle with first letter (only for non-system messages and other users)
+        if (!isMyMessage) {
+            const avatar = document.createElement('div');
+            avatar.className = 'w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-sm font-medium text-white';
+            const avatarText = document.createElement('span');
+            avatarText.className = 'text-white font-medium text-sm';
+            avatarText.textContent = data.username.charAt(0).toUpperCase();
+            avatar.appendChild(avatarText);
+            messageContent.appendChild(avatar);
+        }
+        
+        // Message bubble
+        const bubble = document.createElement('div');
+        bubble.className = `flex flex-col space-y-1 rounded-lg p-3 break-words max-w-[70%] ${
+            isMyMessage ? 'bg-blue-600 ml-auto' : 'bg-gray-700'
+        }`;
+        
+        // Header with username and time
+        const header = document.createElement('div');
+        header.className = 'flex items-center justify-between space-x-4';
+        
+        if (!isMyMessage) {
+            const username = document.createElement('span');
+            username.className = 'text-blue-300 font-medium text-sm';
+            username.textContent = data.username;
+            header.appendChild(username);
+        }
+        
+        const time = document.createElement('span');
+        time.className = 'text-gray-300 text-xs';
+        time.textContent = new Date(data.timestamp).toLocaleTimeString([], { 
+            hour: '2-digit', 
+            minute: '2-digit'
+        });
+        header.appendChild(time);
+        
+        // Message text with mention highlighting
+        const text = document.createElement('div');
+        text.className = 'text-white text-sm whitespace-pre-wrap';
+        
+        // Highlight mentions
+        let html = data.message;
+        const mentionRegex = /@(\w+)/g;
+        html = html.replace(mentionRegex, (match, username) => {
+            return `<span class="text-blue-300">${match}</span>`;
+        });
+        text.innerHTML = html;
+        
+        bubble.appendChild(header);
+        bubble.appendChild(text);
+        messageContent.appendChild(bubble);
+        
+        // Flash title if mentioned
+        if (data.mentions && data.mentions.includes(currentUser) && document.hidden) {
+            document.title = '🔔 New Mention - Chat';
+            const onVisibilityChange = () => {
+                if (!document.hidden) {
+                    document.title = 'Chat';
+                    document.removeEventListener('visibilitychange', onVisibilityChange);
+                }
+            };
+            document.addEventListener('visibilitychange', onVisibilityChange);
+        }
     } else {
-        const { username, userId, text, timestamp } = message;
-        const isCurrentUser = userId === currentUser;
-
-        messageDiv.className = `flex ${isCurrentUser ? 'justify-end' : 'justify-start'}`;
-        
-        const messageContent = document.createElement('div');
-        messageContent.className = `${isCurrentUser ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-800'} p-3 rounded-lg max-w-[80%] break-words shadow-sm`;
-        
-        if (!isCurrentUser) {
-            const userHeader = document.createElement('div');
-            userHeader.className = 'font-medium text-sm mb-1';
-            userHeader.textContent = `@${username}`;
-            messageContent.appendChild(userHeader);
-        }
-        
-        const textContent = document.createElement('div');
-        textContent.className = 'text-sm whitespace-pre-wrap';
-        textContent.innerHTML = formatMessageContent(text || '', isCurrentUser);
-        messageContent.appendChild(textContent);
-        
-        const timeContent = document.createElement('div');
-        timeContent.className = 'text-xs mt-1 opacity-75';
-        timeContent.textContent = new Date(timestamp).toLocaleTimeString();
-        messageContent.appendChild(timeContent);
-        
-        messageDiv.appendChild(messageContent);
+        // System message
+        const systemMessage = document.createElement('div');
+        systemMessage.className = 'bg-gray-800 text-gray-400 text-sm px-4 py-2 rounded-full';
+        systemMessage.textContent = data.message;
+        messageContent.appendChild(systemMessage);
     }
-
-    return messageDiv;
-}
-
-function formatMessageContent(text, isCurrentUserMessage = false) {
-    if (!text) return '';
-    let formattedText = escapeHtml(text);
     
-    // Format mentions
-    formattedText = formattedText.replace(/@(\w+)/g, (match, username) => {
-        const member = Array.from(roomMembers.values()).find(m => m.username === username);
-        if (member) {
-            const mentionClass = isCurrentUserMessage ? 
-                'text-primary-100 font-semibold cursor-pointer' : 
-                'text-primary-700 font-semibold cursor-pointer';
-            return `<span class="${mentionClass}">@${escapeHtml(username)}</span>`;
-        }
-        return match;
-    });
+    messageDiv.appendChild(messageContent);
+    messagesDiv.appendChild(messageDiv);
     
-    // Format URLs
-    formattedText = formattedText.replace(/(https?:\/\/[^\s]+)/g, (url) => {
-        const linkClass = isCurrentUserMessage ? 
-            'text-primary-100 underline hover:text-white' : 
-            'text-primary-600 underline hover:text-primary-800';
-        return `<a href="${escapeHtml(url)}" target="_blank" class="${linkClass}">${escapeHtml(url)}</a>`;
-    });
-    
-    return formattedText;
-}
-
-const MAX_MESSAGES = 100;
-
-function cullMessages() {
-    const messages = messagesDiv.children;
-    while (messages.length > MAX_MESSAGES) {
-        messagesDiv.removeChild(messages[0]);
-    }
-}
-
-function addMessage(message, isSystem = false) {
-    const messageElement = createMessageElement(message, isSystem);
-    messagesDiv.appendChild(messageElement);
-    
-    // Auto scroll if user is near bottom or typing
-    if (isNearBottom || isTyping) {
+    // Scroll to bottom if near bottom
+    if (isNearBottom) {
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    }
-    
-    // Only cull if we have too many messages
-    if (messagesDiv.children.length > MAX_MESSAGES) {
-        cullMessages();
     }
 }
 
 function addSystemMessage(message) {
-    addMessage({ text: message }, true);
+    displayMessage({
+        username: 'System',
+        message: message,
+        timestamp: Date.now(),
+        isSystem: true
+    });
+}
+
+function setupMessageInput() {
+    const input = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-message');
+    
+    // Handle @ mentions
+    input.addEventListener('keydown', (e) => {
+        if (e.key === '@') {
+            // Show all members immediately when @ is typed
+            const matches = Array.from(roomMembers.values())
+                .filter(member => member.userId !== currentUser)
+                .slice(0, 5);
+            
+            if (matches.length > 0) {
+                showMentionSuggestions(matches, input, '@');
+            }
+        }
+    });
+    
+    input.addEventListener('input', (e) => {
+        const text = input.value;
+        const cursorPos = input.selectionStart;
+        const beforeCursor = text.slice(0, cursorPos);
+        const mentionMatch = beforeCursor.match(/@(\w*)$/);
+        
+        if (mentionMatch) {
+            const searchTerm = mentionMatch[1].toLowerCase();
+            const matches = Array.from(roomMembers.values())
+                .filter(member => 
+                    member.userId !== currentUser && 
+                    member.username.toLowerCase().includes(searchTerm)
+                )
+                .slice(0, 5);
+            
+            if (matches.length > 0) {
+                showMentionSuggestions(matches, input, mentionMatch[0]);
+            } else {
+                hideMentionSuggestions();
+            }
+        } else {
+            hideMentionSuggestions();
+        }
+        
+        // Auto-resize and update send button
+        input.style.height = 'auto';
+        input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+        
+        const isEmpty = input.value.trim().length === 0;
+        sendButton.disabled = isEmpty;
+        sendButton.className = `px-6 py-2 rounded-lg transition-colors flex items-center gap-2 ${
+            isEmpty ? 'bg-gray-600 cursor-not-allowed' : 'primary-button hover:bg-blue-600'
+        }`;
+    });
+    
+    // Handle Enter to send
+    input.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    
+    // Send button click
+    sendButton.addEventListener('click', sendMessage);
+    
+    // Close mention suggestions when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#mention-suggestions') && e.target !== input) {
+            hideMentionSuggestions();
+        }
+    });
+}
+
+// Show mention suggestions dropdown
+function showMentionSuggestions(matches, input, partial) {
+    const mentionContainer = document.getElementById('mention-suggestions') || createMentionContainer();
+    
+    const suggestions = matches.map(member => {
+        const username = escapeHtml(member.username);
+        return `<div class="p-3 hover:bg-gray-700 cursor-pointer flex items-center space-x-3 touch-manipulation" data-username="${username}">
+            <div class="w-2 h-2 rounded-full bg-green-500"></div>
+            <div class="flex-1">
+                <div class="text-sm font-medium text-gray-100">@${username}</div>
+            </div>
+        </div>`;
+    }).join('');
+
+    mentionContainer.innerHTML = `
+        <div class="p-2 bg-gray-800 border-b border-gray-700">
+            <div class="text-sm text-gray-400">Tap a user to mention them</div>
+        </div>
+        <div class="divide-y divide-gray-700">${suggestions}</div>
+    `;
+    
+    mentionContainer.querySelectorAll('[data-username]').forEach(el => {
+        el.addEventListener('click', () => completeMention(el.dataset.username, partial));
+    });
+    
+    mentionContainer.style.display = 'block';
+    positionMentionContainer(input);
+}
+
+// Create mention container if it doesn't exist
+function createMentionContainer() {
+    const container = document.createElement('div');
+    container.id = 'mention-suggestions';
+    container.className = 'fixed bg-gray-800 rounded-lg shadow-lg border border-gray-700 max-h-48 overflow-y-auto z-50 transition-transform duration-200 ease-in-out';
+    document.body.appendChild(container);
+    return container;
 }
 
 function updateMembersList(members) {
+    console.log('Updating members list with:', members);
     const membersList = document.getElementById('members-list');
+    
+    // Clear the list
     membersList.innerHTML = '';
     
     members.forEach(member => {
-        const div = document.createElement('div');
-        div.className = 'flex items-center space-x-3 p-2 rounded-lg hover:bg-gray-700 transition-colors';
+        const memberItem = document.createElement('div');
+        memberItem.className = 'member-item flex items-center space-x-3 p-2 hover:bg-gray-700/50 rounded-lg transition-colors cursor-pointer';
+        memberItem.dataset.userId = member.userId;
         
-        const status = document.createElement('span');
-        status.className = `w-2 h-2 rounded-full ${member.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}`;
+        const avatar = document.createElement('div');
+        avatar.className = 'w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-sm font-medium text-white';
+        avatar.textContent = member.username.charAt(0).toUpperCase();
         
-        const name = document.createElement('span');
-        name.className = 'text-gray-100 font-medium';
-        name.textContent = member.username;
+        const usernameSpan = document.createElement('span');
+        usernameSpan.className = 'text-gray-100';
+        usernameSpan.textContent = member.username;
         
-        // Add mention button
-        const mentionBtn = document.createElement('button');
-        mentionBtn.className = 'ml-auto text-blue-400 hover:text-blue-300 text-sm';
-        mentionBtn.textContent = '@';
-        mentionBtn.onclick = () => mentionUser(member.username);
+        memberItem.appendChild(avatar);
+        memberItem.appendChild(usernameSpan);
         
-        div.appendChild(status);
-        div.appendChild(name);
-        div.appendChild(mentionBtn);
-        membersList.appendChild(div);
+        // Add click handler for mentioning users
+        memberItem.addEventListener('click', () => {
+            mentionUser(member.username);
+        });
+        
+        membersList.appendChild(memberItem);
     });
     
-    // Update member count
-    const maxMembers = currentRoomMaxMembers || 0;
-    const count = members.length;
-    const countDisplay = document.getElementById('members-count');
-    countDisplay.className = 'text-sm text-gray-300';
-    countDisplay.textContent = maxMembers > 0 ? `${count}/${maxMembers}` : count;
-}
-
-function updateMembersCount(count, max = 0) {
-    const countElement = document.getElementById('members-count');
-    countElement.className = 'text-sm text-gray-300';
-    countElement.textContent = max > 0 ? `${count}/${max}` : count;
-}
-
-function showError(message) {
-    const errorContainer = document.getElementById('error-container');
-    if (!errorContainer) {
-        const container = document.createElement('div');
-        container.id = 'error-container';
-        container.className = 'fixed top-4 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-sm mx-auto';
-        document.body.appendChild(container);
+    // Update room count
+    const roomCount = document.getElementById('room-count');
+    if (roomCount) {
+        roomCount.textContent = members.length;
     }
-
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'bg-red-50 border-l-4 border-red-500 p-4 mb-2 rounded-lg shadow-md';
-    errorDiv.innerHTML = `
-        <div class="flex items-start">
-            <div class="flex-shrink-0">
-                <svg class="h-5 w-5 text-red-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-                </svg>
-            </div>
-            <div class="ml-3">
-                <p class="text-sm text-red-700">${escapeHtml(message)}</p>
-            </div>
-            <div class="ml-auto pl-3">
-                <div class="-mx-1.5 -my-1.5">
-                    <button onclick="this.parentElement.parentElement.parentElement.parentElement.remove()" 
-                            class="inline-flex rounded-md p-1.5 text-red-500 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
-                        <span class="sr-only">Dismiss</span>
-                        <svg class="h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        </div>
-    `;
-
-    const container = document.getElementById('error-container');
-    container.appendChild(errorDiv);
-
-    // Auto-remove after 5 seconds
-    setTimeout(() => {
-        if (errorDiv && errorDiv.parentElement) {
-            errorDiv.remove();
-        }
-    }, 5000);
 }
 
-// Load app info
-fetch('/info.json')
-    .then(response => response.json())
-    .then(info => {
-        // Update all app info elements
-        document.getElementById('app-name').textContent = info.name;
-        document.getElementById('app-version').textContent = `v${info.version}`;
-        document.getElementById('app-description').textContent = info.description;
-        document.getElementById('app-author').textContent = info.author;
+function sendMessage() {
+    const input = document.getElementById('message-input');
+    const message = input.value.trim();
+    
+    if (message && socket.connected && currentRoom) {
+        // Extract mentions
+        const mentions = [];
+        const mentionRegex = /@(\w+)/g;
+        let match;
         
-        const websiteLink = document.getElementById('app-website');
-        websiteLink.href = info.website;
-        websiteLink.textContent = info.website;
-    })
-    .catch(console.error);
+        while ((match = mentionRegex.exec(message)) !== null) {
+            const username = match[1];
+            const memberElement = Array.from(document.querySelectorAll('.member-item')).find(el => 
+                el.querySelector('.text-gray-100').textContent === username
+            );
+            if (memberElement) {
+                mentions.push(memberElement.dataset.userId);
+            }
+        }
 
-// Initialize everything when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
+        const messageData = {
+            content: message,
+            sender: currentUsername,
+            roomId: currentRoom,
+            timestamp: Date.now(),
+            mentions: mentions
+        };
+        
+        console.log('Sending message:', messageData);
+        socket.emit('message', messageData);
+        
+        input.value = '';
+        input.style.height = 'auto';
+        input.focus();
+    }
+}
+
+function joinRoom(roomId, username) {
+    if (!socket.connected) {
+        showError('Not connected to server');
+        return;
+    }
+    
+    const joinData = {
+        roomId: roomId,
+        username: username,
+        publicKey: publicKey
+    };
+    
+    console.log('Joining room:', joinData);
+    socket.emit('join-room', joinData);
+}
+
+socket.on('roomError', (error) => {
+    showError(error.message || 'Error joining room');
 });
 
-// Add manual reconnect button if needed
-function addReconnectButton() {
-    const button = document.createElement('button');
-    button.className = 'fixed bottom-4 right-4 bg-primary-600 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2';
-    button.textContent = 'Reconnect';
-    button.style.display = 'none';
-    document.body.appendChild(button);
-    
-    // Show button when disconnected for too long
-    socket.on('disconnect', () => {
-        setTimeout(() => {
-            if (!socket.connected) {
-                button.style.display = 'block';
-            }
-        }, 10000);
-    });
-    
-    socket.on('connect', () => {
-        button.style.display = 'none';
-    });
+socket.on('messageError', (error) => {
+    showError(error.message || 'Error sending message');
+});
+
+// Handle leave room button click
+document.getElementById('leave-room').addEventListener('click', () => {
+    leaveRoom();
+});
+
+function leaveRoom() {
+    console.log('Leave room clicked');
+    if (currentRoom) {
+        socket.emit('leave-room', { 
+            roomId: currentRoom,
+            userId: currentUser 
+        });
+        
+        // Clear everything
+        currentRoom = null;
+        currentUsername = null;
+        messageHistory = [];
+        roomMembers.clear();
+        
+        // Clear UI
+        document.getElementById('messages').innerHTML = '';
+        document.getElementById('members-list').innerHTML = '';
+        document.getElementById('chat-container').classList.add('hidden');
+        
+        // Show join container and reset form
+        const joinContainer = document.getElementById('join-container');
+        joinContainer.classList.remove('hidden');
+        document.getElementById('username').value = '';
+        document.getElementById('room-id').value = '';
+        
+        // Force reload to ensure clean state
+        window.location.reload();
+    }
 }
 
 // Create mention suggestions container
@@ -626,13 +779,12 @@ function showMentionSuggestions(matches, input, partial) {
     });
     
     mentionContainer.style.display = 'block';
-    positionMentionContainer();
+    positionMentionContainer(input);
 }
 
 // Function to position mention container
-function positionMentionContainer() {
-    const messageInput = document.getElementById('message-input');
-    const rect = messageInput.getBoundingClientRect();
+function positionMentionContainer(input) {
+    const rect = input.getBoundingClientRect();
     
     if (window.innerWidth >= 768) { // Desktop
         mentionContainer.style.bottom = 'auto';
@@ -720,58 +872,81 @@ function formatMessage(text) {
     return escapeHtml(text);
 }
 
-function sendMessage() {
-    if (!socket.connected) {
-        showError('Not connected to server. Please wait...');
-        return;
-    }
+function downloadAsText() {
+    const text = messageHistory.map(msg => 
+        `[${new Date(msg.timestamp).toLocaleString()}] ${msg.username}: ${msg.message}`
+    ).join('\n');
+    
+    downloadFile(text, 'chat-history.txt', 'text/plain');
+}
 
-    const messageInput = document.getElementById('message-input');
-    const content = messageInput.value.trim();
+function downloadAsCSV() {
+    const header = 'Timestamp,Username,Message\n';
+    const csv = messageHistory.map(msg => 
+        `"${msg.timestamp}","${msg.username}","${msg.message.replace(/"/g, '""')}"`
+    ).join('\n');
     
-    if (!currentRoom) {
-        showError('Please join a room before sending messages');
-        return;
-    }
+    downloadFile(header + csv, 'chat-history.csv', 'text/csv');
+}
+
+function downloadFile(content, filename, type) {
+    const blob = new Blob([content], { type: type });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+}
+
+// Load app info
+fetch('/info.json')
+    .then(response => response.json())
+    .then(info => {
+        // Update all app info elements
+        document.getElementById('app-name').textContent = info.name;
+        document.getElementById('app-version').textContent = `v${info.version}`;
+        document.getElementById('app-description').textContent = info.description;
+        document.getElementById('app-author').textContent = info.author;
+        
+        const websiteLink = document.getElementById('app-website');
+        websiteLink.href = info.website;
+        websiteLink.textContent = info.website;
+    })
+    .catch(console.error);
+
+// Initialize everything when DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+    // Add download button event listeners
+    document.getElementById('download-txt').addEventListener('click', downloadAsText);
+    document.getElementById('download-csv').addEventListener('click', downloadAsCSV);
     
-    if (!content) {
-        showError('Please enter a message');
-        return;
-    }
+    // Update leave room button to clear history
+    document.getElementById('leave-room').addEventListener('click', leaveRoom);
+    setupMessageInput();
+});
+
+// Add manual reconnect button if needed
+function addReconnectButton() {
+    const button = document.createElement('button');
+    button.className = 'fixed bottom-4 right-4 bg-primary-600 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2';
+    button.textContent = 'Reconnect';
+    button.style.display = 'none';
+    document.body.appendChild(button);
     
-    socket.emit('message', {
-        roomId: currentRoom,
-        content: content,
-        senderId: currentUser
+    // Show button when disconnected for too long
+    socket.on('disconnect', () => {
+        setTimeout(() => {
+            if (!socket.connected) {
+                button.style.display = 'block';
+            }
+        }, 10000);
     });
-
-    messageInput.value = '';
-}
-
-function joinRoom(roomId, options = {}) {
-    if (!socket.connected) {
-        showError('Not connected to server. Please wait...');
-        return;
-    }
     
-    if (!roomId) {
-        showError('Invalid room ID');
-        return;
-    }
-
-    if (currentRoom === roomId) {
-        showError('You are already in this room');
-        return;
-    }
-
-    socket.emit('joinRoom', { roomId, ...options });
-    currentRoom = roomId;
+    socket.on('connect', () => {
+        button.style.display = 'none';
+    });
 }
-
-socket.on('roomError', (error) => {
-    showError(error.message || 'Error joining room');
-});
-
-socket.on('messageError', (error) => {
-    showError(error.message || 'Error sending message');
-});

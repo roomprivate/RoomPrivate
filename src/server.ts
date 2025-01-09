@@ -283,7 +283,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('leave-room', async ({ roomId }) => {
+    socket.on('leave-room', async ({ roomId, userId }) => {
         try {
             if (!roomId) {
                 logger.warn('No room ID provided for leave-room event');
@@ -333,12 +333,7 @@ io.on('connection', (socket) => {
                 }))
             };
 
-            for (const [_, user] of roomUsers) {
-                if (user.publicKey) {
-                    const encryptedNotification = encryptForUser(notification, user.publicKey);
-                    socket.to(user.socketId).emit('user-left', encryptedNotification);
-                }
-            }
+            io.to(roomId).emit('user-left', notification);
 
             logger.info(`User ${userId} left room ${roomId}`);
 
@@ -434,12 +429,7 @@ io.on('connection', (socket) => {
                         }))
                     };
 
-                    for (const [_, user] of roomUsers) {
-                        if (user.publicKey) {
-                            const encryptedNotification = encryptForUser(notification, user.publicKey);
-                            io.to(user.socketId).emit('user-left', encryptedNotification);
-                        }
-                    }
+                    io.to(roomId).emit('user-left', notification);
 
                     logger.info(`User ${userId} disconnected from room ${roomId}`);
 

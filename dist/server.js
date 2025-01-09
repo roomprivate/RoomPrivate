@@ -74,12 +74,24 @@ catch (error) {
 const io = new socket_io_1.Server(server, {
     cors: {
         origin: "*",
-        methods: ["GET", "POST"],
+        methods: ["GET", "POST", "OPTIONS"],
         allowedHeaders: ["*"],
         credentials: true
     },
     allowEIO3: true,
-    transports: ['polling', 'websocket']
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    transports: ['polling', 'websocket'],
+    allowUpgrades: true,
+    perMessageDeflate: {
+        threshold: 2048 // Size in bytes, compression only for messages larger than this
+    },
+    cookie: {
+        name: 'io',
+        path: '/',
+        httpOnly: true,
+        sameSite: 'lax'
+    }
 });
 const rooms = new Map();
 function generateRoomId() {
@@ -266,7 +278,7 @@ io.on('connection', (socket) => {
             socket.emit('error', encryptForUser({ message: 'Failed to join room' }, publicKey));
         }
     });
-    socket.on('leave-room', async ({ roomId }) => {
+    socket.on('leave-room', async ({ roomId, userId }) => {
         try {
             if (!roomId) {
                 logger_1.logger.warn('No room ID provided for leave-room event');
@@ -307,12 +319,7 @@ io.on('connection', (socket) => {
                     status: u.status
                 }))
             };
-            for (const [_, user] of roomUsers) {
-                if (user.publicKey) {
-                    const encryptedNotification = encryptForUser(notification, user.publicKey);
-                    socket.to(user.socketId).emit('user-left', encryptedNotification);
-                }
-            }
+            io.to(roomId).emit('user-left', notification);
             logger_1.logger.info(`User ${userId} left room ${roomId}`);
             // If room is empty, delete it from both memory and database
             if (roomUsers.size === 0) {
@@ -326,39 +333,38 @@ io.on('connection', (socket) => {
             logger_1.logger.error('Error handling leave-room event:', error);
         }
     });
-    socket.on('message', async ({ roomId, content, timestamp }) => {
+    socket.on('message', async ({ roomId, content, senderId }) => {
         try {
-            if (!socket.data.roomId || !roomId) {
+            if (!socket.data.roomId) {
                 logger_1.logger.warn('User not in room or room not specified');
                 return;
             }
-            const roomUsers = rooms.get(roomId);
+            const roomUsers = rooms.get(socket.data.roomId);
             if (!roomUsers) {
-                logger_1.logger.warn('Room not found in memory', { roomId });
+                logger_1.logger.warn('Room not found', { roomId: socket.data.roomId });
                 return;
             }
-            const user = roomUsers.get(socket.id);
-            if (!user) {
-                logger_1.logger.warn('User not found in room', { roomId, socketId: socket.id });
+            const sender = roomUsers.get(socket.id);
+            if (!sender) {
+                logger_1.logger.warn('Sender not found in room', { roomId: socket.data.roomId, senderId: socket.id });
                 return;
             }
-            // Prepare message data
+            // Broadcast message to all users in room
             const messageData = {
-                sender: user.username,
-                senderId: socket.id,
                 content,
-                timestamp,
-                mentions: extractMentions(content, Array.from(roomUsers.values()))
+                sender: sender.username,
+                senderId: socket.id,
+                timestamp: Date.now()
             };
-            // Encrypt message for each recipient
-            for (const [recipientId, recipient] of roomUsers.entries()) {
-                const encryptedMessage = encryptForUser(messageData, recipient.publicKey);
-                io.to(recipientId).emit('message', encryptedMessage);
+            // Send to all users in room
+            for (const user of roomUsers.values()) {
+                const encryptedMessage = encryptForUser(messageData, user.publicKey);
+                io.to(user.socketId).emit('message', encryptedMessage);
             }
-            logger_1.logger.info('Message sent successfully', { roomId, sender: user.username });
         }
         catch (error) {
-            logger_1.logger.error('Error sending message:', error);
+            logger_1.logger.error('Error processing message:', error);
+            socket.emit('messageError', { message: 'Failed to send message' });
         }
     });
     socket.on('disconnect', async () => {
@@ -395,12 +401,7 @@ io.on('connection', (socket) => {
                             status: u.status
                         }))
                     };
-                    for (const [_, user] of roomUsers) {
-                        if (user.publicKey) {
-                            const encryptedNotification = encryptForUser(notification, user.publicKey);
-                            io.to(user.socketId).emit('user-left', encryptedNotification);
-                        }
-                    }
+                    io.to(roomId).emit('user-left', notification);
                     logger_1.logger.info(`User ${userId} disconnected from room ${roomId}`);
                     // If room is empty, delete it from both memory and database
                     if (roomUsers.size === 0) {
