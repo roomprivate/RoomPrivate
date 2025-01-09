@@ -1,10 +1,85 @@
 // WebSocket connection
-let ws = null;
-let reconnectAttempts = 0;
-const maxReconnectAttempts = 5;
-const reconnectDelay = 1000;
-let currentSocketId = null;
-let isCreatingRoom = false;
+let ws;
+let currentRoom;
+let currentUsername;
+let currentSocketId;
+let currentRoomKey;
+let currentRoomPrivateKey;
+
+function connectWebSocket() {
+    const wsUrl = 'ws://localhost:2052/ws';
+    ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+        console.log('WebSocket connected');
+    };
+    
+    ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        setTimeout(connectWebSocket, 1000);
+    };
+    
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            console.log('Parsed message:', data);
+            
+            if (data.event === 'connected') {
+                currentSocketId = data.data.socketId;
+                console.log('Socket ID set:', currentSocketId);
+            } else {
+                console.log('Handling event:', data.event);
+                handleEvent(data.event, data.data);
+            }
+        } catch (error) {
+            console.error('Error parsing message:', error);
+        }
+    };
+}
+
+function handleEvent(event, data) {
+    console.log('Handling event:', event, data);
+    
+    switch (event) {
+        case 'room-created':
+            handleRoomCreated(data);
+            break;
+        case 'room-joined':
+            handleRoomJoined(data);
+            break;
+        case 'member-joined':
+            handleMemberJoined(data);
+            break;
+        case 'member-left':
+            handleMemberLeft(data);
+            break;
+        case 'message':
+        case 'message-sent':
+            handleMessage(data);
+            break;
+        case 'error':
+            handleError(data);
+            break;
+        default:
+            console.log('Unknown event:', event, data);
+    }
+}
+
+// Initialize WebSocket connection when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('Setting up UI event listeners...');
+    setupUIEventListeners();
+    connectWebSocket();
+    
+    // Track scroll position
+    let isNearBottom = true;
+    
+    // Set up scroll tracking
+    const messagesDiv = document.getElementById('messages');
+    messagesDiv.addEventListener('scroll', () => {
+        isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
+    });
+});
 
 // UI Elements
 const joinContainer = document.getElementById('join-container');
@@ -16,10 +91,7 @@ const messageInput = document.getElementById('message-input');
 
 // State
 let currentUser = null;
-let currentRoom = null;
 let roomKey = null;
-let currentUsername = null;
-let currentRoomMaxMembers = null;
 let publicKey = null;
 
 // Keep track of room members for mentions
@@ -44,89 +116,6 @@ document.body.appendChild(mentionContainer);
 // Function to hide mention suggestions
 function hideMentionSuggestions() {
     mentionContainer.style.display = 'none';
-}
-
-// Initialize connection when page loads
-document.addEventListener('DOMContentLoaded', () => {
-    console.log('Page loaded, connecting to WebSocket...');
-    connectWebSocket();
-    setupUIEventListeners();
-});
-
-function connectWebSocket() {
-    console.log('Starting WebSocket connection...');
-    
-    // Close existing connection if any
-    if (ws) {
-        console.log('Closing existing connection...');
-        ws.close();
-        ws = null;
-    }
-
-    try {
-        const wsUrl = 'ws://localhost:2052/ws';
-        console.log('Connecting to:', wsUrl);
-        
-        ws = new WebSocket(wsUrl);
-        
-        ws.onopen = () => {
-            console.log('WebSocket CONNECTED!');
-            reconnectAttempts = 0;
-            showConnectionStatus('Connected', 'success');
-        };
-        
-        ws.onclose = (event) => {
-            console.log('WebSocket CLOSED:', event.code, event.reason);
-            currentSocketId = null;
-            isCreatingRoom = false;
-            showConnectionStatus('Disconnected', 'error');
-            
-            if (reconnectAttempts < maxReconnectAttempts) {
-                const delay = reconnectDelay * Math.pow(2, reconnectAttempts);
-                console.log(`Reconnecting in ${delay}ms... Attempt ${reconnectAttempts + 1}/${maxReconnectAttempts}`);
-                setTimeout(() => {
-                    reconnectAttempts++;
-                    connectWebSocket();
-                }, delay);
-            } else {
-                showError('Connection lost. Please refresh the page.');
-            }
-        };
-        
-        ws.onmessage = (event) => {
-            console.log('Received raw message:', event.data);
-            try {
-                const { event: eventName, data } = JSON.parse(event.data);
-                console.log('Parsed message:', { eventName, data });
-                
-                if (eventName === 'connection' && data.socketId) {
-                    currentSocketId = data.socketId;
-                    console.log('Got socket ID:', currentSocketId);
-                }
-                
-                handleEvent(eventName, data);
-            } catch (error) {
-                console.error('Failed to parse message:', error);
-                console.log('Raw message was:', event.data);
-            }
-        };
-        
-        ws.onerror = (error) => {
-            console.error('WebSocket ERROR:', error);
-            showError('Connection error occurred');
-        };
-    } catch (error) {
-        console.error('Failed to create WebSocket:', error);
-        showError('Failed to connect to server');
-        
-        if (reconnectAttempts < maxReconnectAttempts) {
-            const delay = reconnectDelay * Math.pow(2, reconnectAttempts);
-            setTimeout(() => {
-                reconnectAttempts++;
-                connectWebSocket();
-            }, delay);
-        }
-    }
 }
 
 function showConnectionStatus(message, type) {
@@ -155,10 +144,6 @@ function sendEvent(event, data) {
     }
     
     try {
-        if (event === 'create-room') {
-            isCreatingRoom = true;
-        }
-        
         const message = JSON.stringify({ event, data });
         console.log('Sending:', message);
         ws.send(message);
@@ -169,207 +154,6 @@ function sendEvent(event, data) {
         return false;
     }
 }
-
-function handleEvent(event, data) {
-    console.log('Handling event:', event, data);
-    
-    switch (event) {
-        case 'connection':
-            if (data.socketId) {
-                currentSocketId = data.socketId;
-                console.log('Connected with socket ID:', currentSocketId);
-            }
-            break;
-            
-        case 'public-key-registered':
-            console.log('Public key registered:', data);
-            break;
-
-        case 'room-created':
-            if (isCreatingRoom) {
-                isCreatingRoom = false;
-                handleRoomCreated(data);
-            }
-            break;
-
-        case 'room-joined':
-            handleRoomJoined(data);
-            break;
-
-        case 'member-joined':
-            if (data.roomId === currentRoom) {
-                console.log('New member joined:', data);
-                updateMembersList(data.members);
-                addSystemMessage(`${data.member.username} has joined the room`);
-            }
-            break;
-
-        case 'member-left':
-            if (data.roomId === currentRoom) {
-                console.log('Member left:', data);
-                updateMembersList(data.members);
-                addSystemMessage(`${data.username} has left the room`);
-            }
-            break;
-
-        case 'message':
-            handleMessage(data);
-            break;
-
-        case 'error':
-            showError(data.message || 'An error occurred');
-            break;
-
-        default:
-            console.log('Unknown event:', event, data);
-    }
-}
-
-messagesDiv.addEventListener('scroll', () => {
-    isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
-});
-
-messageInput.addEventListener('input', () => {
-    isTyping = true;
-    setTimeout(() => isTyping = false, 1000);
-});
-
-// Set up UI event listeners
-function setupUIEventListeners() {
-    console.log('Setting up UI event listeners...');
-    
-    // Create room button
-    const createRoomBtn = document.getElementById('create-room-btn');
-    if (createRoomBtn) {
-        createRoomBtn.addEventListener('click', () => {
-            console.log('Create room clicked');
-            joinContainer.classList.add('hidden');
-            createRoomContainer.classList.remove('hidden');
-        });
-    }
-    
-    // Create room submit button
-    const createRoomSubmit = document.getElementById('create-room-submit');
-    if (createRoomSubmit) {
-        createRoomSubmit.addEventListener('click', () => {
-            console.log('Creating room...');
-            
-            const username = document.getElementById('create-username').value.trim();
-            const description = document.getElementById('room-description').value.trim();
-            const maxMembers = parseInt(document.getElementById('room-max-members').value) || 0;
-            const hasPassword = document.getElementById('room-password-toggle').checked;
-            const password = hasPassword ? document.getElementById('room-password').value : '';
-            
-            if (!username) {
-                showError('Please enter a username');
-                return;
-            }
-            
-            console.log('Sending create-room event with data:', {
-                username,
-                description,
-                maxMembers,
-                hasPassword
-            });
-            
-            sendEvent('create-room', {
-                username,
-                roomName: `${username}'s Room`,
-                description,
-                maxMembers,
-                password
-            });
-        });
-    }
-    
-    // Join room button
-    const joinRoomBtn = document.getElementById('join-room-btn');
-    if (joinRoomBtn) {
-        joinRoomBtn.addEventListener('click', () => {
-            console.log('Join room clicked');
-            joinContainer.classList.add('hidden');
-            joinRoomForm.classList.remove('hidden');
-        });
-    }
-    
-    // Join room submit button
-    const joinRoomSubmit = document.getElementById('join-room-submit');
-    if (joinRoomSubmit) {
-        joinRoomSubmit.addEventListener('click', () => {
-            console.log('Joining room...');
-            
-            const username = document.getElementById('username').value.trim();
-            const roomId = document.getElementById('room-id').value.trim();
-            const password = document.getElementById('join-room-password').value;
-            
-            if (!username || !roomId) {
-                showError('Username and Room ID are required');
-                return;
-            }
-            
-            console.log('Sending join-room event:', { username, roomId });
-            
-            sendEvent('join-room', {
-                username,
-                roomId,
-                password
-            });
-        });
-    }
-    
-    // Back buttons
-    document.querySelectorAll('.back-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            console.log('Back clicked');
-            createRoomContainer.classList.add('hidden');
-            joinRoomForm.classList.add('hidden');
-            joinContainer.classList.remove('hidden');
-        });
-    });
-}
-
-// Password toggle handlers
-document.getElementById('room-password-toggle').addEventListener('change', function() {
-    const passwordGroup = document.getElementById('room-password-group');
-    passwordGroup.classList.toggle('hidden', !this.checked);
-    if (!this.checked) {
-        document.getElementById('room-password').value = '';
-    }
-});
-
-document.getElementById('join-room-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    
-    if (!currentSocketId) {
-        showError('Not connected to server. Please try again.');
-        return;
-    }
-    
-    const roomId = document.getElementById('join-room-id').value.trim();
-    const username = document.getElementById('join-username').value.trim();
-    const password = document.getElementById('join-room-password').value.trim();
-    
-    if (!roomId || !username) {
-        showError('Room ID and username are required');
-        return;
-    }
-    
-    joinRoom(roomId, username, password);
-});
-
-document.getElementById('send-message').addEventListener('click', sendMessage);
-document.getElementById('message-input').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendMessage();
-});
-
-// Mobile menu handlers
-document.getElementById('toggle-members').addEventListener('click', () => {
-    document.querySelector('.members-sidebar').classList.add('active');
-});
-
-document.querySelector('.close-members').addEventListener('click', () => {
-    document.querySelector('.members-sidebar').classList.remove('active');
-});
 
 function handleRoomCreated(data) {
     console.log('Room created:', data);
@@ -388,7 +172,13 @@ function handleRoomCreated(data) {
     
     // Set current room info
     currentRoom = data.id;
-    currentUsername = data.members[0].username;
+    // Find our member info from the members object
+    const ourMember = Object.values(data.members).find(m => m.userId === currentSocketId);
+    currentUsername = ourMember?.username;
+    currentRoomPrivateKey = data.privateKey;
+    currentRoomKey = data.roomKey;
+    
+    console.log('Set current user:', { currentUsername, currentSocketId, ourMember });
     
     // Update room info in UI
     const roomNameDisplay = document.getElementById('room-name-display');
@@ -407,7 +197,7 @@ function handleRoomCreated(data) {
     }
     
     // Update members list
-    updateMembersList(data.members, data.maxMembers);
+    updateMembersList(Object.values(data.members), data.maxMembers);
     
     // Add system message
     addSystemMessage('Room created successfully');
@@ -420,21 +210,19 @@ function handleRoomCreated(data) {
 function handleRoomJoined(data) {
     console.log('Joined room:', data);
     
-    // Hide join form and show chat
-    const joinRoomForm = document.getElementById('join-room-form');
-    const chatContainer = document.getElementById('chat-container');
-    
-    if (!joinRoomForm || !chatContainer) {
-        console.error('Required elements not found');
-        return;
-    }
-    
-    joinRoomForm.classList.add('hidden');
-    chatContainer.classList.remove('hidden');
-    
     // Set current room info
     currentRoom = data.id;
-    currentUsername = data.members.find(m => m.userId === currentSocketId)?.username;
+    currentRoomPrivateKey = data.privateKey;
+    currentRoomKey = data.roomKey;
+    
+    // Find our member info from the members array
+    const ourMember = data.members.find(m => m.userId === currentSocketId);
+    if (ourMember) {
+        currentUsername = ourMember.username;
+        console.log('Set current user:', { currentUsername, currentSocketId, ourMember });
+    } else {
+        console.error('Could not find our member info in the room members');
+    }
     
     // Update room info in UI
     const roomNameDisplay = document.getElementById('room-name-display');
@@ -442,18 +230,20 @@ function handleRoomJoined(data) {
     
     if (roomNameDisplay) {
         roomNameDisplay.textContent = data.name || 'Unnamed Room';
-    } else {
-        console.error('Room name display element not found');
     }
     
     if (roomIdDisplay) {
         roomIdDisplay.textContent = `Room ID: ${data.id}`;
-    } else {
-        console.error('Room ID display element not found');
     }
     
     // Update members list
     updateMembersList(data.members, data.maxMembers);
+    
+    // Hide join form and show chat
+    document.getElementById('join-container').classList.add('hidden');
+    document.getElementById('create-room-container').classList.add('hidden');
+    document.getElementById('join-room-form').classList.add('hidden');
+    document.getElementById('chat-container').classList.remove('hidden');
     
     // Add system message
     addSystemMessage('You have joined the room');
@@ -461,6 +251,27 @@ function handleRoomJoined(data) {
     // Focus message input
     const messageInput = document.getElementById('message-input');
     if (messageInput) messageInput.focus();
+}
+
+function handleMemberJoined(data) {
+    console.log('Member joined:', data);
+    
+    // Update members list
+    updateMembersList(data.members, data.maxMembers);
+    
+    // Add system message
+    addSystemMessage(`${data.member.username} has joined the room`);
+}
+
+function handleMemberLeft(data) {
+    console.log('Member left:', data);
+    
+    // Update members list
+    updateMembersList(data.members, data.maxMembers);
+    
+    // Add system message
+    const leftMember = data.members.find(m => m.userId === data.userId);
+    addSystemMessage(`${leftMember ? leftMember.username : 'A member'} has left the room`);
 }
 
 function updateMembersList(members, maxMembers) {
@@ -485,7 +296,7 @@ function updateMembersList(members, maxMembers) {
         memberElement.className = 'flex items-center justify-between p-2 hover:bg-gray-700 rounded';
         memberElement.innerHTML = `
             <div class="flex items-center space-x-2">
-                <div class="w-2 h-2 rounded-full ${member.status === 'online' ? 'bg-green-500' : 'bg-gray-500'}"></div>
+                <div class="w-2 h-2 rounded-full bg-green-500"></div>
                 <span class="text-white">${member.username}</span>
             </div>
             ${member.userId === currentSocketId ? '<span class="text-xs text-gray-400">(you)</span>' : ''}
@@ -735,11 +546,30 @@ function formatMessage(text, mentions) {
     return text;
 }
 
-function sendMessage() {
-    const input = document.getElementById('message-input');
-    const message = input.value.trim();
+function extractMentions(text) {
+    const mentions = [];
+    const mentionRegex = /@(\w+)/g;
+    let match;
     
-    if (!message || !currentRoom || !currentUsername) return;
+    while ((match = mentionRegex.exec(text)) !== null) {
+        mentions.push(match[1]);
+    }
+    
+    return mentions;
+}
+
+async function sendMessage(message) {
+    if (!message) return;
+    
+    if (!currentUsername || !currentRoom) {
+        console.error('Cannot send message - not properly connected:', { 
+            currentUsername, 
+            currentSocketId,
+            currentRoom 
+        });
+        showError('Cannot send message - not properly connected to room');
+        return;
+    }
     
     const messageData = {
         content: message,
@@ -750,34 +580,86 @@ function sendMessage() {
     };
     
     console.log('Sending message:', messageData);
-    
-    // Send the message event
-    sendEvent('message', messageData);
-    
-    // Clear input
-    input.value = '';
-    
-    // Display message locally immediately
-    handleMessage(messageData);
+
+    try {
+        // First decrypt the room key using our private key
+        const roomKey = CryptoJS.AES.decrypt(
+            currentRoomKey,
+            currentRoomPrivateKey
+        ).toString(CryptoJS.enc.Utf8);
+
+        // Generate a random IV
+        const iv = CryptoJS.lib.WordArray.random(16);
+
+        // Encrypt message with room key
+        const encryptedContent = CryptoJS.AES.encrypt(
+            JSON.stringify(messageData),
+            roomKey,
+            {
+                iv: iv,
+                mode: CryptoJS.mode.CBC,
+                padding: CryptoJS.pad.Pkcs7
+            }
+        );
+
+        // Send encrypted message
+        ws.send(JSON.stringify({
+            event: 'message',
+            data: {
+                roomId: currentRoom,
+                encryptedContent: encryptedContent.toString(),
+                iv: iv.toString(CryptoJS.enc.Hex)
+            }
+        }));
+
+        // Clear input
+        document.getElementById('message-input').value = '';
+    } catch (error) {
+        console.error('Error encrypting message:', error);
+        showError('Failed to encrypt message');
+    }
 }
 
-function extractMentions(message) {
-    const mentions = [];
-    const mentionRegex = /@(\w+)/g;
-    let match;
-    
-    while ((match = mentionRegex.exec(message)) !== null) {
-        const username = match[1];
-        const memberElement = Array.from(document.querySelectorAll('.member-item')).find(el => 
-            el.querySelector('.text-gray-100').textContent === username
-        );
-        if (memberElement) {
-            mentions.push(memberElement.dataset.userId);
+document.getElementById('send-message').addEventListener('click', () => {
+    const messageInput = document.getElementById('message-input');
+    const message = messageInput.value.trim();
+    if (message) {
+        sendMessage(message);
+        messageInput.value = '';
+    }
+});
+
+document.getElementById('message-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const message = e.target.value.trim();
+        if (message) {
+            sendMessage(message);
+            e.target.value = '';
         }
     }
-    
-    return mentions;
-}
+});
+
+// Add message event listener to the form
+document.getElementById('message-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const messageInput = document.getElementById('message-input');
+    const message = messageInput.value.trim();
+    if (message) {
+        sendMessage(message);
+        messageInput.value = '';
+    }
+});
+
+// Add click event listener to send button
+document.getElementById('send-message').addEventListener('click', () => {
+    const messageInput = document.getElementById('message-input');
+    const message = messageInput.value.trim();
+    if (message) {
+        sendMessage(message);
+        messageInput.value = '';
+    }
+});
 
 function showError(message) {
     const errorDiv = document.createElement('div');
@@ -794,100 +676,41 @@ function showError(message) {
     }, 3000);
 }
 
-// Load app info
-fetch('/info.json')
-    .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json();
-    })
-    .then(info => {
-        console.log('Loaded app info:', info);
-        // Update all app info elements with fallbacks
-        document.getElementById('app-name').textContent = info.name || 'RoomPrivate';
-        document.getElementById('app-version').textContent = info.version ? `v${info.version}` : 'v0.0.1 Alpha';
-        document.getElementById('app-description').textContent = info.description || 'Secure, end-to-end encrypted chat rooms';
-        document.getElementById('app-author').textContent = info.author || 'Klee & C0de';
-        
-        const websiteLink = document.getElementById('app-website');
-        websiteLink.href = info.website || 'https://room.juliaklee.wtf';
-    })
-    .catch(error => {
-        console.error('Error loading app info:', error);
-        // Keep default values from HTML if info.json fails to load
-    });
-
-function scrollToBottom() {
-    const messagesDiv = document.getElementById('messages');
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
-}
-
-// Track displayed messages to prevent duplicates
-const displayedMessages = new Set();
-
 function handleMessage(data) {
     try {
-        // Messages are not encrypted in this version
-        console.log('Received message:', data);
-        
-        // Create a unique key for this message
-        const messageKey = `${data.sender}-${data.timestamp}-${data.content}`;
-        
-        // Skip if we've already displayed this message
-        if (displayedMessages.has(messageKey)) {
-            console.log('Skipping duplicate message:', messageKey);
-            return;
-        }
-        
-        // Add to displayed messages set
-        displayedMessages.add(messageKey);
-        
-        // Clean up old messages from the set (keep last 100)
-        if (displayedMessages.size > 100) {
-            const [firstKey] = displayedMessages;
-            displayedMessages.delete(firstKey);
-        }
-        
-        displayMessage({
-            username: data.sender,
-            message: data.content,
-            timestamp: data.timestamp,
-            isSystem: false,
-            mentions: data.mentions || []
-        });
+        // First decrypt the room key using our private key
+        const roomKey = CryptoJS.AES.decrypt(
+            currentRoomKey,
+            currentRoomPrivateKey
+        ).toString(CryptoJS.enc.Utf8);
+
+        // Decrypt the message content
+        const decryptedContent = CryptoJS.AES.decrypt(
+            data.encryptedContent,
+            roomKey,
+            {
+                iv: CryptoJS.enc.Hex.parse(data.iv),
+                mode: CryptoJS.mode.CBC,
+                padding: CryptoJS.pad.Pkcs7
+            }
+        ).toString(CryptoJS.enc.Utf8);
+
+        const messageData = JSON.parse(decryptedContent);
+        console.log('Decrypted message:', messageData);
+
+        // Create and add message to DOM
+        const messagesDiv = document.getElementById('messages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message-container p-2';
+        messageDiv.innerHTML = `
+            <div class="font-semibold text-white">${messageData.sender}</div>
+            <div class="text-gray-100">${messageData.content}</div>
+        `;
+        messagesDiv.appendChild(messageDiv);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
     } catch (error) {
         console.error('Error processing message:', error);
-        showError('Failed to display message');
-    }
-}
-
-function decryptMessage(encryptedData) {
-    try {
-        // Only decrypt if the data is actually encrypted
-        if (typeof encryptedData === 'string') {
-            const { key: encryptedKey, message: encryptedMessage } = JSON.parse(encryptedData);
-            
-            // Decrypt the message key using our private key
-            const messageKey = CryptoJS.AES.decrypt(
-                encryptedKey,
-                publicKey
-            ).toString(CryptoJS.enc.Utf8);
-            
-            // Use the decrypted message key to decrypt the actual message
-            const decryptedMessage = CryptoJS.AES.decrypt(
-                encryptedMessage,
-                messageKey
-            ).toString(CryptoJS.enc.Utf8);
-            
-            return JSON.parse(decryptedMessage);
-        } else {
-            // If data is not encrypted (like room creation response), return as is
-            return encryptedData;
-        }
-    } catch (error) {
-        console.error('Decryption error:', error);
-        throw error;
+        console.error('Error details:', { data, currentRoomKey, currentRoomPrivateKey });
     }
 }
 
@@ -961,4 +784,125 @@ function downloadFile(content, filename, type) {
     a.click();
     window.URL.revokeObjectURL(url);
     document.body.removeChild(a);
+}
+
+// Load app info
+fetch('/info.json')
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(info => {
+        console.log('Loaded app info:', info);
+        // Update all app info elements with fallbacks
+        document.getElementById('app-name').textContent = info.name || 'RoomPrivate';
+        document.getElementById('app-version').textContent = info.version ? `v${info.version}` : 'v0.0.1 Alpha';
+        document.getElementById('app-description').textContent = info.description || 'Secure, end-to-end encrypted chat rooms';
+        document.getElementById('app-author').textContent = info.author || 'Klee & C0de';
+        
+        const websiteLink = document.getElementById('app-website');
+        websiteLink.href = info.website || 'https://room.juliaklee.wtf';
+    })
+    .catch(error => {
+        console.error('Error loading app info:', error);
+        // Keep default values from HTML if info.json fails to load
+    });
+
+function scrollToBottom() {
+    const messagesDiv = document.getElementById('messages');
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// Track displayed messages to prevent duplicates
+const displayedMessages = new Set();
+
+// Set up UI event listeners
+function setupUIEventListeners() {
+    console.log('Setting up UI event listeners...');
+    
+    // Event handlers for room buttons
+    document.getElementById('create-room-btn').addEventListener('click', () => {
+        document.getElementById('join-container').classList.add('hidden');
+        document.getElementById('create-room-container').classList.remove('hidden');
+    });
+
+    document.getElementById('join-room-btn').addEventListener('click', () => {
+        document.getElementById('join-container').classList.add('hidden');
+        document.getElementById('join-room-form').classList.remove('hidden');
+    });
+
+    // Back buttons
+    document.querySelectorAll('.back-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.getElementById('create-room-container').classList.add('hidden');
+            document.getElementById('join-room-form').classList.add('hidden');
+            document.getElementById('join-container').classList.remove('hidden');
+        });
+    });
+
+    // Create room submit
+    document.getElementById('create-room-submit').addEventListener('click', () => {
+        const username = document.getElementById('create-username').value;
+        const description = document.getElementById('room-description').value;
+        const maxMembers = parseInt(document.getElementById('room-max-members').value);
+        const password = document.getElementById('room-password').value;
+
+        if (!username) {
+            alert('Please enter a username');
+            return;
+        }
+
+        if (!currentSocketId) {
+            console.error('Socket ID not set yet');
+            showError('Not connected to server. Please try again.');
+            return;
+        }
+
+        ws.send(JSON.stringify({
+            event: 'create-room',
+            data: {
+                username,
+                description,
+                maxMembers,
+                password,
+                userId: currentSocketId
+            }
+        }));
+    });
+
+    // Join room submit
+    document.getElementById('join-room-submit').addEventListener('click', () => {
+        const username = document.getElementById('username').value;
+        const roomId = document.getElementById('room-id').value;
+        const password = document.getElementById('join-room-password').value;
+
+        if (!username || !roomId) {
+            alert('Please enter both username and room ID');
+            return;
+        }
+
+        if (!currentSocketId) {
+            console.error('Socket ID not set yet');
+            showError('Not connected to server. Please try again.');
+            return;
+        }
+
+        ws.send(JSON.stringify({
+            event: 'join-room',
+            data: {
+                username,
+                roomId,
+                password,
+                userId: currentSocketId
+            }
+        }));
+    });
+
+    // Password toggle
+    document.getElementById('room-password-toggle').addEventListener('change', (e) => {
+        const passwordGroup = document.getElementById('room-password-group');
+        passwordGroup.classList.toggle('hidden', !e.target.checked);
+    });
 }

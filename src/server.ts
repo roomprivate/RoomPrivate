@@ -14,6 +14,7 @@ import { accessLoggerMiddleware } from './middleware/accessLogger';
 import { AccessLogService } from './services/accessLogService';
 import { spawn } from 'child_process';
 import { Room, RoomMember } from './entities/Room';
+import { E2EEncryption, EncryptedMessage } from './utils/e2eEncryption';
 
 dotenv.config();
 
@@ -44,13 +45,25 @@ try {
 }
 
 // Track rooms and their members
-const rooms = new Map();
+const rooms = new Map<string, Room>();
+
+// Log active rooms every minute
+setInterval(() => {
+    logger.info('Active rooms:', {
+        count: rooms.size,
+        rooms: Array.from(rooms.entries()).map(([id, room]) => ({
+            id,
+            name: room.name,
+            memberCount: room.getMemberCount()
+        }))
+    });
+}, 60000);
 
 // WebSocket setup
 const wss = new WebSocket.Server({ server });
 
 // Track clients and their rooms
-const clients = new Map();
+const clients = new Map<string, WebSocket>();
 
 wss.on('connection', (ws: WebSocket) => {
     const socketId = uuidv4();
@@ -58,7 +71,7 @@ wss.on('connection', (ws: WebSocket) => {
     
     // Send connection confirmation
     ws.send(JSON.stringify({
-        event: 'connection',
+        event: 'connected',
         data: { socketId }
     }));
 
@@ -68,56 +81,85 @@ wss.on('connection', (ws: WebSocket) => {
             const { event, data } = JSON.parse(message.toString());
             logger.info('Received message:', { event, data });
 
-            // For room creation, send immediate confirmation
             if (event === 'create-room') {
-                const roomId = data.roomId || uuidv4();
-                const room = {
-                    id: roomId,
-                    name: data.roomName,
-                    description: data.description || '',
-                    maxMembers: data.maxMembers || 0,
-                    members: [{
-                        userId: socketId,
-                        username: data.username,
-                        status: 'online'
-                    }],
-                    messages: []
-                };
-                
-                rooms.set(roomId, room);
-                
-                ws.send(JSON.stringify({
-                    event: 'room-created',
-                    data: room
-                }));
+                try {
+                    const { username, roomName, description, maxMembers, password } = data;
+                    const keyPair = E2EEncryption.generateRoomKeyPair();
+                    const room = new Room(uuidv4(), roomName || username + "'s Room", keyPair, description, maxMembers, password);
+                    
+                    // Add creator as first member
+                    const memberKeyPair = E2EEncryption.generateRoomKeyPair();
+                    room.addMember(socketId, username, memberKeyPair.publicKey);
+                    
+                    rooms.set(room.id, room);
+                    logger.info('Room created:', { 
+                        roomId: room.id, 
+                        name: room.name, 
+                        creator: username,
+                        creatorId: socketId,
+                        memberCount: room.getMemberCount()
+                    });
+                    
+                    // Send room info with encrypted room key
+                    ws.send(JSON.stringify({
+                        event: 'room-created',
+                        data: {
+                            ...room.toJSON(),
+                            privateKey: memberKeyPair.privateKey,
+                            roomKey: room.getMemberKey(socketId)
+                        }
+                    }));
+                } catch (error) {
+                    logger.error('Error creating room:', error);
+                    ws.send(JSON.stringify({
+                        event: 'error',
+                        data: { message: 'Failed to create room' }
+                    }));
+                }
             }
 
-            // For join room, send immediate confirmation and notify others
             if (event === 'join-room') {
-                const room = rooms.get(data.roomId);
+                const { roomId, username } = data;
+                logger.info('Join room attempt:', { roomId, username, socketId });
+                
+                const room = rooms.get(roomId);
+                logger.info('Found room:', { 
+                    exists: !!room, 
+                    roomDetails: room ? {
+                        id: room.id,
+                        name: room.name,
+                        memberCount: room.getMemberCount()
+                    } : null
+                });
+                
                 if (room) {
-                    const newMember = {
-                        userId: socketId,
-                        username: data.username,
-                        status: 'online'
-                    };
-                    
-                    // Check max members
-                    if (room.maxMembers > 0 && room.members.length >= room.maxMembers) {
+                    if (room.maxMembers > 0 && room.getMemberCount() >= room.maxMembers) {
                         ws.send(JSON.stringify({
                             event: 'error',
                             data: { message: 'Room is full' }
                         }));
                         return;
                     }
+
+                    // Generate key pair for new member
+                    const memberKeyPair = E2EEncryption.generateRoomKeyPair();
+                    room.addMember(socketId, username, memberKeyPair.publicKey);
                     
-                    // Add member to room
-                    room.members.push(newMember);
+                    logger.info('Member joined room:', { 
+                        roomId, 
+                        username,
+                        socketId,
+                        newMemberCount: room.getMemberCount()
+                    });
                     
-                    // Send join confirmation to new member
+                    // Send room info to new member with their encrypted room key
                     ws.send(JSON.stringify({
                         event: 'room-joined',
-                        data: room
+                        data: {
+                            ...room.toJSON(),
+                            privateKey: memberKeyPair.privateKey,
+                            roomKey: room.getMemberKey(socketId)
+                        }
                     }));
                     
                     // Notify other members
@@ -129,7 +171,7 @@ wss.on('connection', (ws: WebSocket) => {
                                     event: 'member-joined',
                                     data: {
                                         roomId: room.id,
-                                        member: newMember,
+                                        member: { userId: socketId, username },
                                         members: room.members,
                                         maxMembers: room.maxMembers
                                     }
@@ -138,6 +180,7 @@ wss.on('connection', (ws: WebSocket) => {
                         }
                     });
                 } else {
+                    logger.warn('Room not found:', { roomId });
                     ws.send(JSON.stringify({
                         event: 'error',
                         data: { message: 'Room not found' }
@@ -145,35 +188,89 @@ wss.on('connection', (ws: WebSocket) => {
                 }
             }
 
-            // For message events, broadcast to all clients in the room
-            if (event === 'message' && data.roomId) {
-                const room = rooms.get(data.roomId);
-                if (room) {
-                    const messageData = {
-                        event: 'message',
-                        data: {
-                            content: data.content,
-                            sender: data.sender,
-                            roomId: data.roomId,
-                            timestamp: data.timestamp,
-                            mentions: data.mentions || []
-                        }
-                    };
-
-                    // Store message in room
-                    room.messages.push(messageData.data);
-
-                    // Send to all members in the room except sender
-                    room.members.forEach((member: RoomMember) => {
-                        if (member.userId !== socketId) {
-                            const client = clients.get(member.userId);
-                            if (client && client.readyState === WebSocket.OPEN) {
-                                client.send(JSON.stringify(messageData));
-                            }
-                        }
-                    });
+            if (event === 'message') {
+                const { roomId, encryptedContent, iv } = data;
+                const room = rooms.get(roomId);
+                
+                if (!room) {
+                    logger.warn('Message sent to non-existent room:', { roomId });
+                    ws.send(JSON.stringify({
+                        event: 'error',
+                        data: { message: 'Room not found' }
+                    }));
+                    return;
                 }
+                
+                if (!room.isMember(socketId)) {
+                    logger.warn('Message sent by non-member:', { roomId, socketId });
+                    ws.send(JSON.stringify({
+                        event: 'error',
+                        data: { message: 'You are not a member of this room' }
+                    }));
+                    return;
+                }
+
+                const messageData = {
+                    encryptedContent,
+                    iv
+                };
+
+                logger.info('Broadcasting encrypted message:', { 
+                    roomId,
+                    recipientCount: room.getMemberCount() - 1
+                });
+
+                // Send to all members in the room except sender
+                room.members.forEach((member: RoomMember) => {
+                    if (member.userId !== socketId) {
+                        const client = clients.get(member.userId);
+                        if (client && client.readyState === WebSocket.OPEN) {
+                            client.send(JSON.stringify({
+                                event: 'message',
+                                data: messageData
+                            }));
+                        }
+                    }
+                });
+
+                // Send confirmation back to sender
+                ws.send(JSON.stringify({
+                    event: 'message-sent',
+                    data: messageData
+                }));
             }
+
+            // Handle client disconnection
+            ws.on('close', () => {
+                logger.info('Client disconnected', { socketId });
+                
+                // Remove from all rooms and notify other members
+                rooms.forEach((room, roomId) => {
+                    const member = room.members[socketId];
+                    if (member) {
+                        // Remove member from room
+                        delete room.members[socketId];
+                        
+                        // Notify remaining members
+                        room.members.forEach((m: RoomMember) => {
+                            const client = clients.get(m.userId);
+                            if (client && client.readyState === WebSocket.OPEN) {
+                                client.send(JSON.stringify({
+                                    event: 'member-left',
+                                    data: {
+                                        roomId,
+                                        userId: socketId,
+                                        members: room.members
+                                    }
+                                }));
+                            }
+                        });
+                    }
+                });
+                
+                // Remove from clients map
+                clients.delete(socketId);
+            });
         } catch (error) {
             logger.error('Error handling message:', error);
             ws.send(JSON.stringify({
@@ -181,42 +278,6 @@ wss.on('connection', (ws: WebSocket) => {
                 data: { message: 'Failed to process message' }
             }));
         }
-    });
-
-    // Handle client disconnection
-    ws.on('close', () => {
-        logger.info('Client disconnected', { socketId });
-        
-        // Remove from all rooms and notify other members
-        rooms.forEach((room, roomId) => {
-            const memberIndex = room.members.findIndex((m: RoomMember) => m.userId === socketId);
-            if (memberIndex !== -1) {
-                const member = room.members[memberIndex];
-                room.members.splice(memberIndex, 1);
-                
-                // Notify remaining members
-                room.members.forEach((m: RoomMember) => {
-                    const client = clients.get(m.userId);
-                    if (client && client.readyState === WebSocket.OPEN) {
-                        client.send(JSON.stringify({
-                            event: 'member-left',
-                            data: {
-                                roomId,
-                                userId: socketId,
-                                members: room.members
-                            }
-                        }));
-                    }
-                });
-                
-                // Remove room if empty
-                if (room.members.length === 0) {
-                    rooms.delete(roomId);
-                }
-            }
-        });
-        
-        clients.delete(socketId);
     });
 });
 
