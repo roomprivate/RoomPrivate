@@ -354,43 +354,42 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('message', async ({ roomId, content, timestamp }) => {
+    socket.on('message', async ({ roomId, content, senderId }) => {
         try {
-            if (!socket.data.roomId || !roomId) {
+            if (!socket.data.roomId) {
                 logger.warn('User not in room or room not specified');
                 return;
             }
 
-            const roomUsers = rooms.get(roomId);
+            const roomUsers = rooms.get(socket.data.roomId);
             if (!roomUsers) {
-                logger.warn('Room not found in memory', { roomId });
+                logger.warn('Room not found', { roomId: socket.data.roomId });
                 return;
             }
 
-            const user = roomUsers.get(socket.id);
-            if (!user) {
-                logger.warn('User not found in room', { roomId, socketId: socket.id });
+            const sender = roomUsers.get(socket.id);
+            if (!sender) {
+                logger.warn('Sender not found in room', { roomId: socket.data.roomId, senderId: socket.id });
                 return;
             }
 
-            // Prepare message data
+            // Broadcast message to all users in room
             const messageData = {
-                sender: user.username,
-                senderId: socket.id,
                 content,
-                timestamp,
-                mentions: extractMentions(content, Array.from(roomUsers.values()))
+                sender: sender.username,
+                senderId: socket.id,
+                timestamp: Date.now()
             };
 
-            // Encrypt message for each recipient
-            for (const [recipientId, recipient] of roomUsers.entries()) {
-                const encryptedMessage = encryptForUser(messageData, recipient.publicKey);
-                io.to(recipientId).emit('message', encryptedMessage);
+            // Send to all users in room
+            for (const user of roomUsers.values()) {
+                const encryptedMessage = encryptForUser(messageData, user.publicKey);
+                io.to(user.socketId).emit('message', encryptedMessage);
             }
 
-            logger.info('Message sent successfully', { roomId, sender: user.username });
         } catch (error) {
-            logger.error('Error sending message:', error);
+            logger.error('Error processing message:', error);
+            socket.emit('messageError', { message: 'Failed to send message' });
         }
     });
 

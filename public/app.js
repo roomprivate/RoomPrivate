@@ -46,6 +46,21 @@ let currentUsername = null;
 // Keep track of room members for mentions
 let roomMembers = new Map();
 
+// Track if user is near bottom
+let isNearBottom = true;
+
+// Track if user is typing
+let isTyping = false;
+
+messagesDiv.addEventListener('scroll', () => {
+    isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
+});
+
+messageInput.addEventListener('input', () => {
+    isTyping = true;
+    setTimeout(() => isTyping = false, 1000);
+});
+
 // Connection event handlers
 socket.on('connect', () => {
     console.log('Connected to server with transport:', socket.io.engine.transport.name);
@@ -87,7 +102,7 @@ socket.on('reconnect', (attemptNumber) => {
     
     // Rejoin room if we were in one
     if (currentRoom) {
-        socket.emit('joinRoom', { roomId: currentRoom });
+        socket.emit('joinRoom', { roomId: currentRoom, username: currentUsername });
     }
 });
 
@@ -204,11 +219,20 @@ socket.on('room-created', (encryptedData) => {
         const decryptedData = decryptMessage(encryptedData);
         console.log('Decrypted room data:', decryptedData);
         
-        const { userId, roomId, name, description, members } = decryptedData;
+        const { userId, roomId, name, description, members, encryptedRoomKey } = decryptedData;
         
         currentUser = userId;
         currentRoom = roomId;
         currentUsername = document.getElementById('create-username').value;
+        roomKey = encryptedRoomKey;
+        
+        // Join room with all required data
+        socket.emit('joinRoom', { 
+            roomId,
+            username: currentUsername,
+            publicKey,
+            userId: currentUser
+        });
         
         // Hide all forms
         joinContainer.classList.add('hidden');
@@ -301,14 +325,16 @@ socket.on('user-left', (encryptedData) => {
 
 socket.on('message', (encryptedData) => {
     try {
+        console.log('Received message:', encryptedData);
         const data = decryptMessage(encryptedData);
-        if (data && data.content && data.sender) {
+        console.log('Decrypted message:', data);
+        if (data && data.content) {
             addMessage({
                 username: data.sender,
-                userId: data.senderId || 'unknown',
+                userId: data.senderId,
                 text: data.content,
-                timestamp: data.timestamp || Date.now()
-            }, false);
+                timestamp: data.timestamp
+            });
         }
     } catch (error) {
         console.error('Error processing message:', error);
@@ -354,11 +380,10 @@ function createMessageElement(message, isSystem = false) {
     
     if (isSystem) {
         messageDiv.className = 'bg-gray-100 p-3 rounded-lg text-gray-600 text-sm';
-        messageDiv.innerHTML = formatMessage(message);
+        messageDiv.textContent = message || '';
     } else {
         const { username, userId, text, timestamp } = message;
         const isCurrentUser = userId === currentUser;
-        const userIdentifier = escapeHtml(`@${username}#${userId.slice(0, 6)}`);
 
         messageDiv.className = `flex ${isCurrentUser ? 'justify-end' : 'justify-start'}`;
         
@@ -368,13 +393,13 @@ function createMessageElement(message, isSystem = false) {
         if (!isCurrentUser) {
             const userHeader = document.createElement('div');
             userHeader.className = 'font-medium text-sm mb-1';
-            userHeader.textContent = userIdentifier;
+            userHeader.textContent = `@${username}`;
             messageContent.appendChild(userHeader);
         }
         
         const textContent = document.createElement('div');
         textContent.className = 'text-sm whitespace-pre-wrap';
-        textContent.innerHTML = formatMessageContent(text, isCurrentUser);
+        textContent.innerHTML = formatMessageContent(text || '', isCurrentUser);
         messageContent.appendChild(textContent);
         
         const timeContent = document.createElement('div');
@@ -389,6 +414,7 @@ function createMessageElement(message, isSystem = false) {
 }
 
 function formatMessageContent(text, isCurrentUserMessage = false) {
+    if (!text) return '';
     let formattedText = escapeHtml(text);
     
     // Format mentions
@@ -398,14 +424,7 @@ function formatMessageContent(text, isCurrentUserMessage = false) {
             const mentionClass = isCurrentUserMessage ? 
                 'text-primary-100 font-semibold cursor-pointer' : 
                 'text-primary-700 font-semibold cursor-pointer';
-            const mentionId = `mention-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-            setTimeout(() => {
-                const mentionElement = document.getElementById(mentionId);
-                if (mentionElement) {
-                    mentionElement.addEventListener('click', () => mentionUser(username));
-                }
-            }, 0);
-            return `<span id="${mentionId}" class="${mentionClass}">@${escapeHtml(username)}#${member.id.slice(0, 6)}</span>`;
+            return `<span class="${mentionClass}">@${escapeHtml(username)}</span>`;
         }
         return match;
     });
@@ -421,15 +440,32 @@ function formatMessageContent(text, isCurrentUserMessage = false) {
     return formattedText;
 }
 
+const MAX_MESSAGES = 100;
+
+function cullMessages() {
+    const messages = messagesDiv.children;
+    while (messages.length > MAX_MESSAGES) {
+        messagesDiv.removeChild(messages[0]);
+    }
+}
+
 function addMessage(message, isSystem = false) {
-    const messagesDiv = document.getElementById('messages');
     const messageElement = createMessageElement(message, isSystem);
     messagesDiv.appendChild(messageElement);
-    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    
+    // Auto scroll if user is near bottom or typing
+    if (isNearBottom || isTyping) {
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+    
+    // Only cull if we have too many messages
+    if (messagesDiv.children.length > MAX_MESSAGES) {
+        cullMessages();
+    }
 }
 
 function addSystemMessage(message) {
-    addMessage(message, true);
+    addMessage({ text: message }, true);
 }
 
 function updateMembersList(members) {
@@ -440,15 +476,16 @@ function updateMembersList(members) {
     members.forEach(member => {
         roomMembers.set(member.username, {
             ...member,
-            id: member.userId || member.socketId || 'unknown'
+            id: member.userId || member.socketId || 'unknown',
+            status: 'online' // Force online status for all members
         });
         
         const memberDiv = document.createElement('div');
         memberDiv.className = 'flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 cursor-pointer';
         memberDiv.innerHTML = `
             <div class="flex items-center space-x-2">
-                <div class="w-2 h-2 rounded-full ${member.status === 'online' ? 'bg-green-500' : 'bg-gray-300'}"></div>
-                <span class="text-sm text-gray-700">@${escapeHtml(member.username)}#${(member.userId || member.socketId || 'unknown').slice(0, 6)}</span>
+                <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                <span class="text-sm text-gray-700">@${escapeHtml(member.username)}</span>
             </div>
             <button class="text-xs text-primary-600 hover:text-primary-700" onclick="mentionUser('${member.username}')">
                 Mention
@@ -543,7 +580,6 @@ function addReconnectButton() {
     const button = document.createElement('button');
     button.className = 'fixed bottom-4 right-4 bg-primary-600 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2';
     button.textContent = 'Reconnect';
-    button.onclick = reconnectSocket;
     button.style.display = 'none';
     document.body.appendChild(button);
     
@@ -589,29 +625,19 @@ function hideMentionSuggestions() {
 function showMentionSuggestions(matches, input, partial) {
     const suggestions = matches.map(member => {
         const username = escapeHtml(member.username);
-        const id = escapeHtml(member.id.slice(0, 6));
-        return `
-            <div class="p-3 hover:bg-gray-50 active:bg-gray-100 cursor-pointer flex items-center space-x-3 touch-manipulation" 
-                 data-username="${username}">
-                <div class="w-2 h-2 rounded-full ${member.status === 'online' ? 'bg-green-500' : 'bg-gray-300'}"></div>
-                <div class="flex-1">
-                    <div class="flex items-center">
-                        <span class="text-sm font-medium text-gray-900">@${username}</span>
-                        <span class="ml-2 text-xs text-gray-500">#${id}</span>
-                    </div>
-                </div>
+        return `<div class="p-3 hover:bg-gray-50 active:bg-gray-100 cursor-pointer flex items-center space-x-3 touch-manipulation" data-username="${username}">
+            <div class="w-2 h-2 rounded-full bg-green-500"></div>
+            <div class="flex-1">
+                <div class="text-sm font-medium text-gray-900">@${username}</div>
             </div>
-        `;
+        </div>`;
     }).join('');
 
-    mentionContainer.innerHTML = `
-        <div class="p-2 bg-gray-50 border-b border-gray-200">
-            <div class="text-sm text-gray-500">Tap a user to mention them</div>
-        </div>
-        <div class="divide-y divide-gray-100">${suggestions}</div>
-    `;
+    mentionContainer.innerHTML = `<div class="p-2 bg-gray-50 border-b border-gray-200">
+        <div class="text-sm text-gray-500">Tap a user to mention them</div>
+    </div>
+    <div class="divide-y divide-gray-100">${suggestions}</div>`;
     
-    // Add click handlers
     mentionContainer.querySelectorAll('[data-username]').forEach(el => {
         el.addEventListener('click', () => completeMention(el.dataset.username, partial));
     });
@@ -733,9 +759,9 @@ function sendMessage() {
     socket.emit('message', {
         roomId: currentRoom,
         content: content,
-        senderId: currentUser,
-        timestamp: Date.now()
+        senderId: currentUser
     });
+
     messageInput.value = '';
 }
 
