@@ -5,7 +5,7 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import https, { Server as HttpsServer } from 'https';
-import { PrivDB } from './services/PrivDB';
+import { PrivDB } from '../dist/services/PrivDB';
 import * as CryptoJS from 'crypto-js';
 import dotenv from 'dotenv';
 import { logger } from './utils/logger';
@@ -66,7 +66,8 @@ const wss = new WebSocket.Server({ server });
 const clients = new Map<string, WebSocket>();
 
 wss.on('connection', (ws: WebSocket) => {
-    const socketId = uuidv4();
+    const socketId: string = uuidv4();
+    
     clients.set(socketId, ws);
     
     // Send connection confirmation
@@ -245,10 +246,10 @@ wss.on('connection', (ws: WebSocket) => {
                 
                 // Remove from all rooms and notify other members
                 rooms.forEach((room, roomId) => {
-                    const member = room.members[socketId];
+                    const member = room.members.find(m => m.userId === socketId);
                     if (member) {
                         // Remove member from room
-                        delete room.members[socketId];
+                        room.members = room.members.filter(m => m.userId !== socketId);
                         
                         // Notify remaining members
                         room.members.forEach((m: RoomMember) => {
