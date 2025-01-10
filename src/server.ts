@@ -179,9 +179,16 @@ wss.on('connection', (ws: WebSocket) => {
 
             if (event === 'create-room') {
                 try {
-                    const { username, roomName, description, maxMembers, password } = data;
+                    const { username, roomName, description, maxMembers = 50, password } = data;
                     const keyPair = E2EEncryption.generateRoomKeyPair();
-                    const room = new Room(uuidv4(), roomName || username + "'s Room", keyPair, description, maxMembers, password);
+                    const room = new Room(
+                        uuidv4(), 
+                        roomName || `${username}'s Room`, 
+                        keyPair, 
+                        description, 
+                        maxMembers, 
+                        password
+                    );
                     
                     // Add creator as first member
                     const memberKeyPair = E2EEncryption.generateRoomKeyPair();
