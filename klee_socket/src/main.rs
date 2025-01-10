@@ -15,7 +15,7 @@ async fn main() {
         .filter_level(log::LevelFilter::Debug)
         .init();
 
-    let addr = "127.0.0.1:3003";
+    let addr = "127.0.0.1:3004";
     info!("Attempting to bind to {}", addr);
     
     match TcpListener::bind(&addr).await {

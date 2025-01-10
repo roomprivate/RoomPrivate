@@ -5,40 +5,95 @@ let currentUsername;
 let currentSocketId;
 let currentRoomKey;
 let currentRoomPrivateKey;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+let heartbeatInterval;
+let lastMessageTime;
+
+// 4 minutes ping interval (server timeout is 5 minutes)
+const HEARTBEAT_INTERVAL = 4 * 60 * 1000;  // 4 minutes
+const ACTIVITY_CHECK_INTERVAL = 60 * 1000;  // 1 minute
+
+function startHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+    }
+    
+    lastMessageTime = Date.now();
+    
+    // Send ping every 4 minutes (server timeout is 5 minutes)
+    heartbeatInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            // Only send heartbeat if no message was sent in the last interval
+            const timeSinceLastMessage = Date.now() - lastMessageTime;
+            if (timeSinceLastMessage >= HEARTBEAT_INTERVAL) {
+                ws.ping();
+                console.debug('Sending heartbeat ping');
+            }
+        }
+    }, HEARTBEAT_INTERVAL);
+}
+
+function updateLastMessageTime() {
+    lastMessageTime = Date.now();
+}
+
+function stopHeartbeat() {
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+    }
+}
 
 function connectWebSocket() {
-    const wsUrl = 'ws://localhost:2052/ws';
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${wsProtocol}//${window.location.host}/ws`;
+    
+    if (ws) {
+        ws.close();
+        stopHeartbeat();
+    }
+    
     ws = new WebSocket(wsUrl);
     
     ws.onopen = () => {
         console.log('WebSocket connected');
+        reconnectAttempts = 0;
+        showConnectionStatus('Connected', 'success');
+        startHeartbeat();
+        
+        // If we were in a room, try to rejoin
+        if (currentRoom && currentUsername) {
+            joinRoom(currentRoom, currentUsername, '');
+        }
     };
     
-    ws.onclose = () => {
-        console.log('WebSocket disconnected');
-        // If we're in a room when disconnected, send leave event when reconnecting
-        const wasInRoom = currentRoom && currentUsername;
-        setTimeout(() => {
-            connectWebSocket();
-            if (wasInRoom) {
-                sendEvent('leave-room', {
-                    roomId: currentRoom,
-                    username: currentUsername
-                });
-            }
-        }, 1000);
+    ws.onclose = (event) => {
+        console.log('WebSocket disconnected', event.code, event.reason);
+        showConnectionStatus('Disconnected - Reconnecting...', 'error');
+        stopHeartbeat();
+        
+        if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+            reconnectAttempts++;
+            setTimeout(connectWebSocket, 1000 * Math.min(reconnectAttempts * 2, 30));
+        } else {
+            showConnectionStatus('Failed to reconnect - Please refresh the page', 'error');
+        }
+    };
+    
+    ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        showConnectionStatus('Connection error', 'error');
     };
     
     ws.onmessage = (event) => {
+        updateLastMessageTime();  // Update last message time on any message
         try {
             const data = JSON.parse(event.data);
-            console.log('Parsed message:', data);
-            
             if (data.event === 'connected') {
                 currentSocketId = data.data.socketId;
                 console.log('Socket ID set:', currentSocketId);
             } else {
-                console.log('Handling event:', data.event);
                 handleEvent(data.event, data.data);
             }
         } catch (error) {
@@ -75,20 +130,15 @@ function handleEvent(event, data) {
     }
 }
 
-// Initialize WebSocket connection when page loads
+// Initialize WebSocket connection and UI only once when page loads
+let initialized = false;
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('Setting up UI event listeners...');
-    setupUIEventListeners();
-    connectWebSocket();
-    
-    // Track scroll position
-    let isNearBottom = true;
-    
-    // Set up scroll tracking
-    const messagesDiv = document.getElementById('messages');
-    messagesDiv.addEventListener('scroll', () => {
-        isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
-    });
+    if (!initialized) {
+        console.log('Initializing application...');
+        setupUIEventListeners();
+        connectWebSocket();
+        initialized = true;
+    }
 });
 
 // UI Elements
@@ -169,14 +219,6 @@ function handleRoomCreated(data) {
     console.log('Room created:', data);
     
     // Hide create form and show chat
-    const createRoomContainer = document.getElementById('create-room-container');
-    const chatContainer = document.getElementById('chat-container');
-    
-    if (!createRoomContainer || !chatContainer) {
-        console.error('Required elements not found');
-        return;
-    }
-    
     createRoomContainer.classList.add('hidden');
     chatContainer.classList.remove('hidden');
     
@@ -213,8 +255,7 @@ function handleRoomCreated(data) {
     addSystemMessage('Room created successfully');
     
     // Focus message input
-    const messageInput = document.getElementById('message-input');
-    if (messageInput) messageInput.focus();
+    messageInput.focus();
 }
 
 function handleRoomJoined(data) {
@@ -250,17 +291,16 @@ function handleRoomJoined(data) {
     updateMembersList(data.members, data.maxMembers);
     
     // Hide join form and show chat
-    document.getElementById('join-container').classList.add('hidden');
-    document.getElementById('create-room-container').classList.add('hidden');
-    document.getElementById('join-room-form').classList.add('hidden');
-    document.getElementById('chat-container').classList.remove('hidden');
+    joinContainer.classList.add('hidden');
+    createRoomContainer.classList.add('hidden');
+    joinRoomForm.classList.add('hidden');
+    chatContainer.classList.remove('hidden');
     
     // Add system message
     addSystemMessage('You have joined the room');
     
     // Focus message input
-    const messageInput = document.getElementById('message-input');
-    if (messageInput) messageInput.focus();
+    messageInput.focus();
 }
 
 function handleMemberJoined(data) {
@@ -836,28 +876,37 @@ const displayedMessages = new Set();
 function setupUIEventListeners() {
     console.log('Setting up UI event listeners...');
     
+    const safeAddEventListener = (id, event, handler) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.addEventListener(event, handler);
+        } else {
+            console.warn(`Element with id '${id}' not found`);
+        }
+    };
+
     // Event handlers for room buttons
-    document.getElementById('create-room-btn').addEventListener('click', () => {
-        document.getElementById('join-container').classList.add('hidden');
-        document.getElementById('create-room-container').classList.remove('hidden');
+    safeAddEventListener('create-room-btn', 'click', () => {
+        joinContainer.classList.add('hidden');
+        createRoomContainer.classList.remove('hidden');
     });
 
-    document.getElementById('join-room-btn').addEventListener('click', () => {
-        document.getElementById('join-container').classList.add('hidden');
-        document.getElementById('join-room-form').classList.remove('hidden');
+    safeAddEventListener('join-room-btn', 'click', () => {
+        joinContainer.classList.add('hidden');
+        joinRoomForm.classList.remove('hidden');
     });
 
     // Back buttons
     document.querySelectorAll('.back-btn').forEach(btn => {
         btn.addEventListener('click', () => {
-            document.getElementById('create-room-container').classList.add('hidden');
-            document.getElementById('join-room-form').classList.add('hidden');
-            document.getElementById('join-container').classList.remove('hidden');
+            createRoomContainer.classList.add('hidden');
+            joinRoomForm.classList.add('hidden');
+            joinContainer.classList.remove('hidden');
         });
     });
 
     // Create room submit
-    document.getElementById('create-room-submit').addEventListener('click', () => {
+    safeAddEventListener('create-room-submit', 'click', () => {
         const username = document.getElementById('create-username').value;
         const description = document.getElementById('room-description').value;
         const maxMembers = parseInt(document.getElementById('room-max-members').value);
@@ -887,7 +936,7 @@ function setupUIEventListeners() {
     });
 
     // Join room submit
-    document.getElementById('join-room-submit').addEventListener('click', () => {
+    safeAddEventListener('join-room-submit', 'click', () => {
         const username = document.getElementById('username').value;
         const roomId = document.getElementById('room-id').value;
         const password = document.getElementById('join-room-password').value;
@@ -915,18 +964,18 @@ function setupUIEventListeners() {
     });
 
     // Password toggle
-    document.getElementById('room-password-toggle').addEventListener('change', (e) => {
+    safeAddEventListener('room-password-toggle', 'change', (e) => {
         const passwordGroup = document.getElementById('room-password-group');
         passwordGroup.classList.toggle('hidden', !e.target.checked);
     });
 
     // Add download and leave room button listeners
-    document.getElementById('download-txt').addEventListener('click', downloadAsText);
-    document.getElementById('download-csv').addEventListener('click', downloadAsCSV);
-    document.getElementById('leave-room').addEventListener('click', leaveRoom);
+    safeAddEventListener('download-txt', 'click', downloadAsText);
+    safeAddEventListener('download-csv', 'click', downloadAsCSV);
+    safeAddEventListener('leave-room', 'click', leaveRoom);
 
     // Add copy room ID button listener
-    document.getElementById('copy-room-id').addEventListener('click', () => {
+    safeAddEventListener('copy-room-id', 'click', () => {
         const roomIdText = document.getElementById('room-id-display').textContent;
         // Extract just the ID part (assuming format is "Room ID: XXX")
         const roomId = roomIdText.split(':')[1]?.trim() || roomIdText;

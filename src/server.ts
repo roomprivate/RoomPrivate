@@ -5,7 +5,6 @@ import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
 import https, { Server as HttpsServer } from 'https';
-import { PrivDB } from './services/PrivDB';
 import * as CryptoJS from 'crypto-js';
 import dotenv from 'dotenv';
 import { logger } from './utils/logger';
@@ -60,26 +59,123 @@ setInterval(() => {
 }, 60000);
 
 // WebSocket setup
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({
+    server,
+    clientTracking: true,
+    perMessageDeflate: false,
+    maxPayload: 256 * 1024, // 256KB max message size
+});
 
 // Track clients and their rooms
 const clients = new Map<string, WebSocket>();
+const heartbeats = new Map<string, NodeJS.Timeout>();
+
+// Heartbeat intervals (5 minutes for ping, 7 minutes for timeout)
+const HEARTBEAT_INTERVAL = 5 * 60 * 1000;     // 5 minutes
+const HEARTBEAT_TIMEOUT = 7 * 60 * 1000;      // 7 minutes
+const CONNECTION_TIMEOUT = 10 * 60 * 1000;    // 10 minutes
+
+function clearHeartbeat(socketId: string) {
+    const timeout = heartbeats.get(socketId);
+    if (timeout) {
+        clearTimeout(timeout);
+        heartbeats.delete(socketId);
+    }
+}
+
+function handleDisconnect(socketId: string, reason: string = 'unknown') {
+    logger.info('Client disconnected', { socketId, reason });
+    
+    // Clear any existing heartbeat
+    clearHeartbeat(socketId);
+    
+    // Get the client
+    const client = clients.get(socketId);
+    
+    // Only proceed if client exists and hasn't been cleaned up
+    if (client) {
+        // Remove from clients map
+        clients.delete(socketId);
+        
+        // Remove from all rooms and notify other members
+        rooms.forEach((room, roomId) => {
+            if (room.isMember(socketId)) {
+                const member = room.members.find(m => m.userId === socketId);
+                const username = member ? member.username : 'unknown';
+                
+                room.removeMember(socketId);
+                
+                // Notify remaining members
+                room.members.forEach((m) => {
+                    const memberClient = clients.get(m.userId);
+                    if (memberClient?.readyState === WebSocket.OPEN) {
+                        memberClient.send(JSON.stringify({
+                            event: 'member-left',
+                            data: {
+                                roomId,
+                                username,
+                                reason
+                            }
+                        }));
+                    }
+                });
+            }
+        });
+        
+        // Close the connection if it's still open
+        if (client.readyState === WebSocket.OPEN) {
+            client.close();
+        }
+    }
+}
 
 wss.on('connection', (ws: WebSocket) => {
     const socketId = uuidv4();
     clients.set(socketId, ws);
     
-    // Send connection confirmation
+    // Setup heartbeat for this connection
+    function heartbeat() {
+        clearHeartbeat(socketId);
+        heartbeats.set(socketId, setTimeout(() => {
+            logger.warn('Client heartbeat timeout', { socketId });
+            ws.terminate();
+            handleDisconnect(socketId, 'heartbeat timeout');
+        }, HEARTBEAT_TIMEOUT));
+    }
+
+    // Start heartbeat
+    heartbeat();
+    
+    // Send initial connection confirmation
     ws.send(JSON.stringify({
         event: 'connected',
         data: { socketId }
     }));
 
-    // Handle messages from clients
+    // Handle pong messages
+    ws.on('pong', () => {
+        heartbeat();
+    });
+
+    // Handle close
+    ws.on('close', () => {
+        handleDisconnect(socketId, 'close');
+    });
+
+    // Handle error
+    ws.on('error', (error) => {
+        logger.error('WebSocket error:', { socketId, error: error.message });
+        handleDisconnect(socketId, 'error');
+    });
+
+    // Handle messages
     ws.on('message', (message: string) => {
         try {
             const { event, data } = JSON.parse(message.toString());
             logger.info('Received message:', { event, data });
+
+            // Reset heartbeat on any message
+            heartbeat();
 
             if (event === 'create-room') {
                 try {
@@ -239,38 +335,6 @@ wss.on('connection', (ws: WebSocket) => {
                     data: messageData
                 }));
             }
-
-            // Handle client disconnection
-            ws.on('close', () => {
-                logger.info('Client disconnected', { socketId });
-                
-                // Remove from all rooms and notify other members
-                rooms.forEach((room, roomId) => {
-                    const member = room.members[socketId];
-                    if (member) {
-                        // Remove member from room
-                        delete room.members[socketId];
-                        
-                        // Notify remaining members
-                        room.members.forEach((m: RoomMember) => {
-                            const client = clients.get(m.userId);
-                            if (client && client.readyState === WebSocket.OPEN) {
-                                client.send(JSON.stringify({
-                                    event: 'member-left',
-                                    data: {
-                                        roomId,
-                                        userId: socketId,
-                                        members: room.members
-                                    }
-                                }));
-                            }
-                        });
-                    }
-                });
-                
-                // Remove from clients map
-                clients.delete(socketId);
-            });
         } catch (error) {
             logger.error('Error handling message:', error);
             ws.send(JSON.stringify({
