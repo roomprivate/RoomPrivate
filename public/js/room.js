@@ -27,7 +27,9 @@ class Room extends EventEmitter {
     }
 
     connect() {
-        this.ws = new WebSocket(`ws://${window.location.hostname}:2052/ws`);
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsPath = '/ws';
+        this.ws = new WebSocket(`${protocol}//${window.location.host}${wsPath}`);
         
         this.ws.onmessage = async (event) => {
             try {
