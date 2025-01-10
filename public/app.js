@@ -1,33 +1,95 @@
-const socket = io({
-    path: '/socket.io/',
-    transports: ['polling', 'websocket'],
-    upgrade: true,
-    rememberUpgrade: true,
-    secure: true,
-    rejectUnauthorized: false,
-    reconnection: true,
-    reconnectionAttempts: Infinity,
-    reconnectionDelay: 1000,
-    reconnectionDelayMax: 5000,
-    randomizationFactor: 0.5,
-    timeout: 20000,
-    autoConnect: true,
-    query: {
-        t: Date.now() // Prevent caching
-    },
-    extraHeaders: {
-        "User-Agent": "Mozilla/5.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Upgrade-Insecure-Requests": "1"
-    }
-});
+// WebSocket connection
+let ws;
+let currentRoom;
+let currentUsername;
+let currentSocketId;
+let currentRoomKey;
+let currentRoomPrivateKey;
 
-// Generate encryption keys on startup
-let publicKey = CryptoJS.lib.WordArray.random(32).toString();
-let privateKey = null;
+function connectWebSocket() {
+    const wsUrl = 'ws://localhost:2052/ws';
+    ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+        console.log('WebSocket connected');
+    };
+    
+    ws.onclose = () => {
+        console.log('WebSocket disconnected');
+        // If we're in a room when disconnected, send leave event when reconnecting
+        const wasInRoom = currentRoom && currentUsername;
+        setTimeout(() => {
+            connectWebSocket();
+            if (wasInRoom) {
+                sendEvent('leave-room', {
+                    roomId: currentRoom,
+                    username: currentUsername
+                });
+            }
+        }, 1000);
+    };
+    
+    ws.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            console.log('Parsed message:', data);
+            
+            if (data.event === 'connected') {
+                currentSocketId = data.data.socketId;
+                console.log('Socket ID set:', currentSocketId);
+            } else {
+                console.log('Handling event:', data.event);
+                handleEvent(data.event, data.data);
+            }
+        } catch (error) {
+            console.error('Error parsing message:', error);
+        }
+    };
+}
+
+function handleEvent(event, data) {
+    console.log('Handling event:', event, data);
+    
+    switch (event) {
+        case 'room-created':
+            handleRoomCreated(data);
+            break;
+        case 'room-joined':
+            handleRoomJoined(data);
+            break;
+        case 'member-joined':
+            handleMemberJoined(data);
+            break;
+        case 'member-left':
+            handleMemberLeft(data);
+            break;
+        case 'message':
+        case 'message-sent':
+            handleMessage(data);
+            break;
+        case 'error':
+            handleError(data);
+            break;
+        default:
+            console.log('Unknown event:', event, data);
+    }
+}
+
+// Initialize WebSocket connection when page loads
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('Setting up UI event listeners...');
+    setupUIEventListeners();
+    connectWebSocket();
+    
+    // Track scroll position
+    let isNearBottom = true;
+    
+    // Set up scroll tracking
+    const messagesDiv = document.getElementById('messages');
+    messagesDiv.addEventListener('scroll', () => {
+        isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
+    });
+});
 
 // UI Elements
 const joinContainer = document.getElementById('join-container');
@@ -39,10 +101,8 @@ const messageInput = document.getElementById('message-input');
 
 // State
 let currentUser = null;
-let currentRoom = null;
 let roomKey = null;
-let currentUsername = null;
-let currentRoomMaxMembers = null;
+let publicKey = null;
 
 // Keep track of room members for mentions
 let roomMembers = new Map();
@@ -56,455 +116,230 @@ let isTyping = false;
 // Message history
 let messageHistory = [];
 
-messagesDiv.addEventListener('scroll', () => {
-    isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
-});
+// Create mention suggestions container
+const mentionContainer = document.createElement('div');
+mentionContainer.id = 'mention-suggestions';
+mentionContainer.className = 'fixed bottom-16 left-0 right-0 md:left-auto md:right-auto md:ml-4 max-w-sm mx-auto bg-gray-800 rounded-lg shadow-lg border border-gray-700 max-h-48 overflow-y-auto z-50';
+mentionContainer.style.display = 'none';
+document.body.appendChild(mentionContainer);
 
-messageInput.addEventListener('input', () => {
-    isTyping = true;
-    setTimeout(() => isTyping = false, 1000);
-});
+// Function to hide mention suggestions
+function hideMentionSuggestions() {
+    mentionContainer.style.display = 'none';
+}
 
-// Connection event handlers
-socket.on('connect', () => {
-    console.log('Connected to server with transport:', socket.io.engine.transport.name);
+function showConnectionStatus(message, type) {
+    console.log('Connection status:', message, type);
+    const statusDiv = document.createElement('div');
+    statusDiv.className = `connection-status ${type}`;
+    statusDiv.textContent = message;
+    document.body.appendChild(statusDiv);
     
-    // Register public key with server immediately after connection
-    socket.emit('register-key', { publicKey });
-    console.log('Connected and registered encryption key');
+    setTimeout(() => {
+        statusDiv.remove();
+    }, 3000);
+}
+
+function sendEvent(event, data) {
+    if (!ws) {
+        console.error('No WebSocket connection!');
+        showError('Not connected to server');
+        return false;
+    }
     
-    socket.io.engine.on('upgrade', () => {
-        console.log('Upgraded transport to:', socket.io.engine.transport.name);
-    });
-});
-
-socket.on('connect_error', (error) => {
-    console.error('Connection error:', error);
-    showError('Connection lost. Retrying...');
-});
-
-socket.on('disconnect', (reason) => {
-    console.log('Disconnected:', reason);
+    if (ws.readyState !== WebSocket.OPEN) {
+        console.error('WebSocket not open! State:', ws.readyState);
+        showError('Server connection not ready');
+        return false;
+    }
     
-    if (reason === 'io server disconnect') {
-        socket.connect();
-    }
-});
-
-socket.on('reconnect', (attemptNumber) => {
-    console.log('Reconnected after', attemptNumber, 'attempts');
-    
-    // Rejoin room if we were in one
-    if (currentRoom) {
-        socket.emit('join-room', {
-            roomId: currentRoom,
-            username: currentUsername
-        });
-    }
-});
-
-socket.on('reconnect_attempt', () => {
-    // Always try websocket first
-    socket.io.opts.transports = ['websocket'];
-});
-
-socket.on('reconnect_error', (error) => {
-    console.error('Reconnection error:', error);
-    showError('Unable to reconnect. Please check your connection.');
-});
-
-socket.on('reconnect_failed', () => {
-    console.error('Failed to reconnect');
-    showError('Connection failed. Please refresh the page.');
-});
-
-// Event Listeners
-document.getElementById('create-room-btn').addEventListener('click', () => {
-    joinContainer.classList.add('hidden');
-    createRoomContainer.classList.remove('hidden');
-});
-
-document.getElementById('join-room-btn').addEventListener('click', () => {
-    joinContainer.classList.add('hidden');
-    joinRoomForm.classList.remove('hidden');
-});
-
-document.querySelectorAll('.back-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-        createRoomContainer.classList.add('hidden');
-        joinRoomForm.classList.add('hidden');
-        joinContainer.classList.remove('hidden');
-    });
-});
-
-// Password toggle handlers
-document.getElementById('room-password-toggle').addEventListener('change', function() {
-    const passwordGroup = document.getElementById('room-password-group');
-    passwordGroup.classList.toggle('hidden', !this.checked);
-    if (!this.checked) {
-        document.getElementById('room-password').value = '';
-    }
-});
-
-document.getElementById('create-room-submit').addEventListener('click', async () => {
-    const username = document.getElementById('create-username').value.trim();
-    const description = document.getElementById('room-description').value.trim();
-    const maxMembers = parseInt(document.getElementById('room-max-members').value) || 0;
-    const password = document.getElementById('room-password-toggle').checked ? 
-        document.getElementById('room-password').value : '';
-
-    if (!username) {
-        showError('Please enter a username');
-        return;
-    }
-
-    socket.emit('create-room', {
-        username,
-        description,
-        maxMembers,
-        password,
-        publicKey
-    });
-});
-
-document.getElementById('join-room-submit').addEventListener('click', () => {
-    const roomId = document.getElementById('room-id').value.trim();
-    const username = document.getElementById('username').value.trim();
-    const password = document.getElementById('join-room-password').value;
-
-    if (!roomId || !username) {
-        showError('Please fill in all required fields');
-        return;
-    }
-
-    socket.emit('join-room', {
-        roomId,
-        username,
-        password,
-        publicKey
-    });
-});
-
-document.getElementById('send-message').addEventListener('click', sendMessage);
-document.getElementById('message-input').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendMessage();
-});
-
-// Mobile menu handlers
-document.getElementById('toggle-members').addEventListener('click', () => {
-    document.querySelector('.members-sidebar').classList.add('active');
-});
-
-document.querySelector('.close-members').addEventListener('click', () => {
-    document.querySelector('.members-sidebar').classList.remove('active');
-});
-
-// Socket event handlers
-socket.on('message', (data) => {
-    console.log('Received message:', data);
     try {
-        const decryptedMessage = decryptMessage(data);
-        console.log('Decrypted message:', decryptedMessage);
-        
-        displayMessage({
-            username: decryptedMessage.sender,
-            message: decryptedMessage.content,
-            timestamp: decryptedMessage.timestamp,
-            isSystem: false
-        });
+        const message = JSON.stringify({ event, data });
+        console.log('Sending:', message);
+        ws.send(message);
+        return true;
     } catch (error) {
-        console.error('Error processing message:', error);
-        showError('Failed to decrypt message');
-    }
-});
-
-socket.on('room-created', (encryptedData) => {
-    console.log('Room created raw data:', encryptedData);
-    console.log("emitted")
-    try {
-        const data = decryptMessage(encryptedData);
-        console.log('Room created decrypted:', data);
-        
-        // Save room info
-        currentUser = data.userId;
-        currentRoom = data.roomId;
-        roomKey = data.encryptedRoomKey;
-        currentUsername = document.getElementById('username').value;
-        
-        // Hide forms, show chat
-        joinContainer.classList.add('hidden');
-        createRoomContainer.classList.add('hidden');
-        joinRoomForm.classList.add('hidden');
-        chatContainer.classList.remove('hidden');
-        
-        // Update room info
-        document.getElementById('room-name-display').textContent = data.name || 'Unnamed Room';
-        document.getElementById('room-id-display').textContent = `Room ID: ${data.roomId}`;
-        document.getElementById('room-description-display').textContent = data.description || '';
-        document.getElementById('members-count').textContent = data.members.length + "/" + data.max;
-        console.log(JSON.stringify(data))
-        document.title = `${data.name || 'Unnamed Room'} - Chat Room`;
-        
-        // Initialize members list
-        if (Array.isArray(data.members)) {
-            updateMembersList(data.members);
-        }
-        
-        addSystemMessage(`Welcome to ${data.name || 'the room'}!`);
-    } catch (error) {
-        console.error('Error handling room created:', error);
-        showError('Failed to create room. Please try again.');
-    }
-});
-
-socket.on('room-joined', (encryptedData) => {
-    console.log('Room joined raw data:', encryptedData);
-    try {
-        const data = decryptMessage(encryptedData);
-        console.log('Room joined decrypted:', data);
-        
-        // Save room info
-        currentUser = data.userId;
-        currentRoom = data.roomId;
-        roomKey = data.encryptedRoomKey;
-        currentUsername = document.getElementById('username').value;
-        
-        // Hide forms, show chat
-        joinContainer.classList.add('hidden');
-        createRoomContainer.classList.add('hidden');
-        joinRoomForm.classList.add('hidden');
-        chatContainer.classList.remove('hidden');
-        
-        // Update room info
-        document.getElementById('room-name-display').textContent = data.name || 'Unnamed Room';
-        document.getElementById('room-id-display').textContent = `Room ID: ${data.roomId}`;
-        document.getElementById('room-description-display').textContent = data.description || '';
-        document.getElementById('members-count').textContent = data.members.length + "/" + data.max;
-        console.log(JSON.stringify(data))
-        document.title = `${data.name || 'Unnamed Room'} - Chat Room`;
-        
-        // Initialize members list
-        if (Array.isArray(data.members)) {
-            updateMembersList(data.members);
-        }
-        
-        addSystemMessage(`Welcome to ${data.name || 'the room'}!`);
-    } catch (error) {
-        console.error('Error handling room joined:', error);
-        showError('Failed to join room. Please try again.');
-    }
-});
-
-socket.on('member-update', (encryptedData) => {
-    console.log('Member update raw data:', encryptedData);
-    try {
-        const data = decryptMessage(encryptedData);
-        console.log('Member update decrypted:', data);
-        
-        if (Array.isArray(data.members)) {
-            updateMembersList(data.members);
-        }
-    } catch (error) {
-        console.error('Error handling member update:', error);
-    }
-});
-
-socket.on('user-joined', (data) => {
-    console.log('User joined:', data);
-    try {
-        // Data is not encrypted for this event
-        const { username, userId, status } = data;
-        
-        // Get current members list
-        const membersList = document.getElementById('members-list');
-        const currentMembers = Array.from(membersList.children).map(el => ({
-            userId: el.dataset.userId,
-            username: el.querySelector('.text-gray-100').textContent,
-            status: 'online'
-        }));
-        
-        // Add new member if not exists
-        if (!currentMembers.find(m => m.userId === userId)) {
-            currentMembers.push({
-                userId,
-                username,
-                status: status || 'online'
-            });
-            
-            // Update the list
-            updateMembersList(currentMembers);
-            addSystemMessage(`${username} joined the room`);
-        }
-    } catch (error) {
-        console.error('Error handling user joined:', error);
-    }
-});
-
-socket.on('user-left', (data) => {
-    console.log('User left:', data);
-    // Remove from roomMembers
-    if (roomMembers.has(data.userId)) {
-        roomMembers.delete(data.userId);
-    }
-    addSystemMessage(`${data.username} left the room`);
-});
-
-socket.on('members-update', (data) => {
-    console.log('Members update:', data);
-    // Clear and rebuild entire roomMembers
-    roomMembers.clear();
-    data.members.forEach(member => {
-        roomMembers.set(member.userId, member);
-    });
-    // Update UI
-    updateMembersList(Array.from(roomMembers.values()));
-});
-
-socket.on('welcome', (data) => {
-    console.log('Welcome data:', data);
-    displayMessage({
-        username: 'System',
-        message: `Welcome to Room ${data.roomId}!`,
-        timestamp: new Date().toISOString(),
-        isSystem: true
-    });
-});
-
-socket.on('error', (error) => {
-    console.error('Server error:', error);
-    showError(error.message || 'An error occurred');
-});
-
-// Helper functions
-function decryptMessage(encryptedData) {
-    try {
-        const { key: encryptedKey, message: encryptedMessage } = JSON.parse(encryptedData);
-        
-        // Decrypt the message key using our public key
-        const messageKey = CryptoJS.AES.decrypt(encryptedKey, publicKey).toString(CryptoJS.enc.Utf8);
-        if (!messageKey) throw new Error('Failed to decrypt message key');
-        
-        // Decrypt the actual message using the message key
-        const decryptedMessage = CryptoJS.AES.decrypt(encryptedMessage, messageKey).toString(CryptoJS.enc.Utf8);
-        if (!decryptedMessage) throw new Error('Failed to decrypt message');
-        
-        return JSON.parse(decryptedMessage);
-    } catch (error) {
-        console.error('Decryption error:', error);
-        throw error;
+        console.error('Failed to send message:', error);
+        showError('Failed to send message');
+        return false;
     }
 }
 
-function escapeHtml(unsafe) {
-    return unsafe
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-function displayMessage(data) {
-    console.log('Displaying message:', data);
-    const messagesDiv = document.getElementById('messages');
-    const messageDiv = document.createElement('div');
-    const isMyMessage = data.username === currentUsername;
-    const isSystem = data.isSystem;
+function handleRoomCreated(data) {
+    console.log('Room created:', data);
     
-    messageDiv.className = 'flex flex-col space-y-1 mb-4';
+    // Hide create form and show chat
+    const createRoomContainer = document.getElementById('create-room-container');
+    const chatContainer = document.getElementById('chat-container');
     
-    // Message container with proper spacing and alignment
-    const messageContent = document.createElement('div');
-    messageContent.className = `flex items-start space-x-2 ${isMyMessage ? 'justify-end' : 'justify-start'} ${isSystem ? 'justify-center' : ''}`;
+    if (!createRoomContainer || !chatContainer) {
+        console.error('Required elements not found');
+        return;
+    }
     
-    if (!isSystem) {
-        // Avatar circle with first letter (only for non-system messages and other users)
-        if (!isMyMessage) {
-            const avatar = document.createElement('div');
-            avatar.className = 'w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-sm font-medium text-white';
-            const avatarText = document.createElement('span');
-            avatarText.className = 'text-white font-medium text-sm';
-            avatarText.textContent = data.username.charAt(0).toUpperCase();
-            avatar.appendChild(avatarText);
-            messageContent.appendChild(avatar);
-        }
-        
-        // Message bubble
-        const bubble = document.createElement('div');
-        bubble.className = `flex flex-col space-y-1 rounded-lg p-3 break-words max-w-[70%] ${
-            isMyMessage ? 'bg-blue-600 ml-auto' : 'bg-gray-700'
-        }`;
-        
-        // Header with username and time
-        const header = document.createElement('div');
-        header.className = 'flex items-center justify-between space-x-4';
-        
-        if (!isMyMessage) {
-            const username = document.createElement('span');
-            username.className = 'text-blue-300 font-medium text-sm';
-            username.textContent = data.username;
-            header.appendChild(username);
-        }
-        
-        const time = document.createElement('span');
-        time.className = 'text-gray-300 text-xs';
-        time.textContent = new Date(data.timestamp).toLocaleTimeString([], { 
-            hour: '2-digit', 
-            minute: '2-digit'
-        });
-        header.appendChild(time);
-        
-        // Message text with mention highlighting
-        const text = document.createElement('div');
-        text.className = 'text-white text-sm whitespace-pre-wrap';
-        
-        // Highlight mentions
-        let html = data.message;
-        const mentionRegex = /@(\w+)/g;
-        html = html.replace(mentionRegex, (match, username) => {
-            return `<span class="text-blue-300">${match}</span>`;
-        });
-        text.innerHTML = html;
-        
-        bubble.appendChild(header);
-        bubble.appendChild(text);
-        messageContent.appendChild(bubble);
-        
-        // Flash title if mentioned
-        if (data.mentions && data.mentions.includes(currentUser) && document.hidden) {
-            document.title = '🔔 New Mention - Chat';
-            const onVisibilityChange = () => {
-                if (!document.hidden) {
-                    document.title = 'Chat';
-                    document.removeEventListener('visibilitychange', onVisibilityChange);
-                }
-            };
-            document.addEventListener('visibilitychange', onVisibilityChange);
-        }
+    createRoomContainer.classList.add('hidden');
+    chatContainer.classList.remove('hidden');
+    
+    // Set current room info
+    currentRoom = data.id;
+    // Find our member info from the members object
+    const ourMember = Object.values(data.members).find(m => m.userId === currentSocketId);
+    currentUsername = ourMember?.username;
+    currentRoomPrivateKey = data.privateKey;
+    currentRoomKey = data.roomKey;
+    
+    console.log('Set current user:', { currentUsername, currentSocketId, ourMember });
+    
+    // Update room info in UI
+    const roomNameDisplay = document.getElementById('room-name-display');
+    const roomIdDisplay = document.getElementById('room-id-display');
+    
+    if (roomNameDisplay) {
+        roomNameDisplay.textContent = data.name || 'Unnamed Room';
     } else {
-        // System message
-        const systemMessage = document.createElement('div');
-        systemMessage.className = 'bg-gray-800 text-gray-400 text-sm px-4 py-2 rounded-full';
-        systemMessage.textContent = data.message;
-        messageContent.appendChild(systemMessage);
+        console.error('Room name display element not found');
     }
     
-    messageDiv.appendChild(messageContent);
-    messagesDiv.appendChild(messageDiv);
-    
-    // Scroll to bottom if near bottom
-    if (isNearBottom) {
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    if (roomIdDisplay) {
+        roomIdDisplay.textContent = `Room ID: ${data.id}`;
+    } else {
+        console.error('Room ID display element not found');
     }
+    
+    // Update members list
+    updateMembersList(Object.values(data.members), data.maxMembers);
+    
+    // Add system message
+    addSystemMessage('Room created successfully');
+    
+    // Focus message input
+    const messageInput = document.getElementById('message-input');
+    if (messageInput) messageInput.focus();
+}
+
+function handleRoomJoined(data) {
+    console.log('Joined room:', data);
+    
+    // Set current room info
+    currentRoom = data.id;
+    currentRoomPrivateKey = data.privateKey;
+    currentRoomKey = data.roomKey;
+    
+    // Find our member info from the members array
+    const ourMember = data.members.find(m => m.userId === currentSocketId);
+    if (ourMember) {
+        currentUsername = ourMember.username;
+        console.log('Set current user:', { currentUsername, currentSocketId, ourMember });
+    } else {
+        console.error('Could not find our member info in the room members');
+    }
+    
+    // Update room info in UI
+    const roomNameDisplay = document.getElementById('room-name-display');
+    const roomIdDisplay = document.getElementById('room-id-display');
+    
+    if (roomNameDisplay) {
+        roomNameDisplay.textContent = data.name || 'Unnamed Room';
+    }
+    
+    if (roomIdDisplay) {
+        roomIdDisplay.textContent = `Room ID: ${data.id}`;
+    }
+    
+    // Update members list
+    updateMembersList(data.members, data.maxMembers);
+    
+    // Hide join form and show chat
+    document.getElementById('join-container').classList.add('hidden');
+    document.getElementById('create-room-container').classList.add('hidden');
+    document.getElementById('join-room-form').classList.add('hidden');
+    document.getElementById('chat-container').classList.remove('hidden');
+    
+    // Add system message
+    addSystemMessage('You have joined the room');
+    
+    // Focus message input
+    const messageInput = document.getElementById('message-input');
+    if (messageInput) messageInput.focus();
+}
+
+function handleMemberJoined(data) {
+    console.log('Member joined:', data);
+    
+    // Update members list
+    updateMembersList(data.members, data.maxMembers);
+    
+    // Add system message
+    addSystemMessage(`${data.member.username} has joined the room`);
+}
+
+function handleMemberLeft(data) {
+    console.log('Member left:', data);
+    const { username } = data;
+    
+    // Clear the members list and update with new data
+    const membersList = document.getElementById('members-list');
+    membersList.innerHTML = '';
+    
+    // Update the members list with remaining members
+    if (data.members) {
+        updateMembersList(data.members, data.maxMembers);
+    }
+    
+    // Add system message
+    addSystemMessage(`${username} has left the room`);
+}
+
+function updateMembersList(members, maxMembers) {
+    console.log('Updating members list:', members);
+    const membersList = document.getElementById('members-list');
+    const membersCount = document.getElementById('members-count');
+    
+    if (!membersList || !membersCount) {
+        console.error('Members list elements not found');
+        return;
+    }
+    
+    // Clear current list
+    membersList.innerHTML = '';
+    
+    // Sort members by username
+    members.sort((a, b) => a.username.localeCompare(b.username));
+    
+    // Add each member
+    members.forEach(member => {
+        const memberElement = document.createElement('div');
+        memberElement.className = 'flex items-center justify-between p-2 hover:bg-gray-700 rounded';
+        memberElement.innerHTML = `
+            <div class="flex items-center space-x-2">
+                <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                <span class="text-white">${member.username}</span>
+            </div>
+            ${member.userId === currentSocketId ? '<span class="text-xs text-gray-400">(you)</span>' : ''}
+        `;
+        memberElement.setAttribute('data-username', member.username);
+        membersList.appendChild(memberElement);
+    });
+    
+    // Update count with max members if available
+    const maxMembersText = maxMembers > 0 ? `/${maxMembers}` : '';
+    membersCount.textContent = `${members.length}${maxMembersText}`;
 }
 
 function addSystemMessage(message) {
-    displayMessage({
-        username: 'System',
-        message: message,
-        timestamp: Date.now(),
-        isSystem: true
-    });
+    const messagesDiv = document.getElementById('messages');
+    if (!messagesDiv) {
+        console.error('Messages container not found');
+        return;
+    }
+    
+    const messageElement = document.createElement('div');
+    messageElement.className = 'text-center text-gray-400 text-sm';
+    messageElement.textContent = message;
+    messagesDiv.appendChild(messageElement);
+    
+    // Scroll to bottom
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
 }
 
 function setupMessageInput() {
@@ -581,7 +416,7 @@ function setupMessageInput() {
 
 // Show mention suggestions dropdown
 function showMentionSuggestions(matches, input, partial) {
-    const mentionContainer = document.getElementById('mention-suggestions') || createMentionContainer();
+    const mentionContainer = document.getElementById('mention-suggestions');
     
     const suggestions = matches.map(member => {
         const username = escapeHtml(member.username);
@@ -592,7 +427,7 @@ function showMentionSuggestions(matches, input, partial) {
             </div>
         </div>`;
     }).join('');
-
+    
     mentionContainer.innerHTML = `
         <div class="p-2 bg-gray-800 border-b border-gray-700">
             <div class="text-sm text-gray-400">Tap a user to mention them</div>
@@ -608,92 +443,50 @@ function showMentionSuggestions(matches, input, partial) {
     positionMentionContainer(input);
 }
 
-// Create mention container if it doesn't exist
-function createMentionContainer() {
-    const container = document.createElement('div');
-    container.id = 'mention-suggestions';
-    container.className = 'fixed bg-gray-800 rounded-lg shadow-lg border border-gray-700 max-h-48 overflow-y-auto z-50 transition-transform duration-200 ease-in-out';
-    document.body.appendChild(container);
-    return container;
+function positionMentionContainer(input) {
+    const rect = input.getBoundingClientRect();
+    const mentionContainer = document.getElementById('mention-suggestions');
+    mentionContainer.style.top = `${rect.top + rect.height}px`;
+    mentionContainer.style.left = `${rect.left}px`;
 }
 
-function updateMembersList(members) {
-    console.log('Updating members list with:', members);
-    const membersList = document.getElementById('members-list');
-    
-    // Clear the list
-    membersList.innerHTML = '';
-    
-    members.forEach(member => {
-        const memberItem = document.createElement('div');
-        memberItem.className = 'member-item flex items-center space-x-3 p-2 hover:bg-gray-700/50 rounded-lg transition-colors cursor-pointer';
-        memberItem.dataset.userId = member.userId;
-        
-        const avatar = document.createElement('div');
-        avatar.className = 'w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-sm font-medium text-white';
-        avatar.textContent = member.username.charAt(0).toUpperCase();
-        
-        const usernameSpan = document.createElement('span');
-        usernameSpan.className = 'text-gray-100';
-        usernameSpan.textContent = member.username;
-        
-        memberItem.appendChild(avatar);
-        memberItem.appendChild(usernameSpan);
-        
-        // Add click handler for mentioning users
-        memberItem.addEventListener('click', () => {
-            mentionUser(member.username);
-        });
-        
-        membersList.appendChild(memberItem);
-    });
-    
-    // Update room count
-    const roomCount = document.getElementById('room-count');
-    if (roomCount) {
-        roomCount.textContent = members.length;
-    }
-}
-
-function sendMessage() {
+function completeMention(username, partial) {
     const input = document.getElementById('message-input');
-    const message = input.value.trim();
+    const text = input.value;
+    const cursorPos = input.selectionStart;
+    const beforeCursor = text.slice(0, cursorPos);
+    const afterCursor = text.slice(cursorPos);
     
-    if (message && socket.connected && currentRoom) {
-        // Extract mentions
-        const mentions = [];
-        const mentionRegex = /@(\w+)/g;
-        let match;
-        
-        while ((match = mentionRegex.exec(message)) !== null) {
-            const username = match[1];
-            const memberElement = Array.from(document.querySelectorAll('.member-item')).find(el => 
-                el.querySelector('.text-gray-100').textContent === username
-            );
-            if (memberElement) {
-                mentions.push(memberElement.dataset.userId);
-            }
-        }
-
-        const messageData = {
-            content: message,
-            sender: currentUsername,
-            roomId: currentRoom,
-            timestamp: Date.now(),
-            mentions: mentions
-        };
-        
-        console.log('Sending message:', messageData);
-        socket.emit('message', messageData);
-        
-        input.value = '';
-        input.style.height = 'auto';
-        input.focus();
-    }
+    // Replace the partial mention with the full username
+    const newText = beforeCursor.replace(new RegExp(`${partial}$`), `@${username} `) + afterCursor;
+    input.value = newText;
+    
+    // Move the cursor to the end of the mention
+    input.selectionStart = cursorPos + username.length + 2;
+    input.selectionEnd = cursorPos + username.length + 2;
+    
+    // Hide the mention suggestions
+    hideMentionSuggestions();
 }
 
-function joinRoom(roomId, username) {
-    if (!socket.connected) {
+function mentionUser(username) {
+    const input = document.getElementById('message-input');
+    const text = input.value;
+    const cursorPos = input.selectionStart;
+    const beforeCursor = text.slice(0, cursorPos);
+    const afterCursor = text.slice(cursorPos);
+    
+    // Insert the mention at the cursor position
+    const newText = beforeCursor + `@${username} ` + afterCursor;
+    input.value = newText;
+    
+    // Move the cursor to the end of the mention
+    input.selectionStart = cursorPos + username.length + 2;
+    input.selectionEnd = cursorPos + username.length + 2;
+}
+
+function joinRoom(roomId, username, password) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
         showError('Not connected to server');
         return;
     }
@@ -701,257 +494,492 @@ function joinRoom(roomId, username) {
     const joinData = {
         roomId: roomId,
         username: username,
+        password: password,
         publicKey: publicKey
     };
     
     console.log('Joining room:', joinData);
-    socket.emit('join-room', joinData);
+    sendEvent('join-room', joinData);
 }
-
-socket.on('roomError', (error) => {
-    showError(error.message || 'Error joining room');
-});
-
-socket.on('messageError', (error) => {
-    showError(error.message || 'Error sending message');
-});
-
-// Handle leave room button click
-document.getElementById('leave-room').addEventListener('click', () => {
-    leaveRoom();
-});
 
 function leaveRoom() {
-    console.log('Leave room clicked');
-    if (currentRoom) {
-        socket.emit('leave-room', { 
+    if (ws && ws.readyState === WebSocket.OPEN && currentRoom && currentUsername) {
+        sendEvent('leave-room', {
             roomId: currentRoom,
-            userId: currentUser 
+            username: currentUsername
         });
-        
-        // Clear everything
-        currentRoom = null;
-        currentUsername = null;
-        messageHistory = [];
-        roomMembers.clear();
-        
-        // Clear UI
-        document.getElementById('messages').innerHTML = '';
-        document.getElementById('members-list').innerHTML = '';
-        document.getElementById('chat-container').classList.add('hidden');
-        
-        // Show join container and reset form
-        const joinContainer = document.getElementById('join-container');
-        joinContainer.classList.remove('hidden');
-        document.getElementById('username').value = '';
-        document.getElementById('room-id').value = '';
-        
-        // Force reload to ensure clean state
-        window.location.reload();
     }
-}
-
-// Create mention suggestions container
-const mentionContainer = document.createElement('div');
-mentionContainer.className = 'fixed bottom-16 left-0 right-0 md:left-auto md:right-auto md:ml-4 max-w-sm mx-auto bg-white rounded-lg shadow-lg border border-gray-200 max-h-48 overflow-y-auto z-50 transform transition-transform duration-200 ease-in-out';
-mentionContainer.style.display = 'none';
-document.body.appendChild(mentionContainer);
-
-// Function to hide mention suggestions
-function hideMentionSuggestions() {
-    mentionContainer.style.display = 'none';
-}
-
-// Function to show mention suggestions
-function showMentionSuggestions(matches, input, partial) {
-    const suggestions = matches.map(member => {
-        const username = escapeHtml(member.username);
-        return `<div class="p-3 hover:bg-gray-50 active:bg-gray-100 cursor-pointer flex items-center space-x-3 touch-manipulation" data-username="${username}">
-            <div class="w-2 h-2 rounded-full bg-green-500"></div>
-            <div class="flex-1">
-                <div class="text-sm font-medium text-gray-900">@${username}</div>
-            </div>
-        </div>`;
-    }).join('');
-
-    mentionContainer.innerHTML = `<div class="p-2 bg-gray-50 border-b border-gray-200">
-        <div class="text-sm text-gray-500">Tap a user to mention them</div>
-    </div>
-    <div class="divide-y divide-gray-100">${suggestions}</div>`;
-    
-    mentionContainer.querySelectorAll('[data-username]').forEach(el => {
-        el.addEventListener('click', () => completeMention(el.dataset.username, partial));
-    });
-    
-    mentionContainer.style.display = 'block';
-    positionMentionContainer(input);
-}
-
-// Function to position mention container
-function positionMentionContainer(input) {
-    const rect = input.getBoundingClientRect();
-    
-    if (window.innerWidth >= 768) { // Desktop
-        mentionContainer.style.bottom = 'auto';
-        mentionContainer.style.top = (rect.top - mentionContainer.offsetHeight - 8) + 'px';
-        mentionContainer.style.left = rect.left + 'px';
-        mentionContainer.style.right = 'auto';
-        mentionContainer.style.width = '320px';
-    } else { // Mobile
-        mentionContainer.style.bottom = '80px';
-        mentionContainer.style.top = 'auto';
-        mentionContainer.style.left = '16px';
-        mentionContainer.style.right = '16px';
-        mentionContainer.style.width = 'auto';
-    }
-}
-
-// Update input event listener for mentions
-document.getElementById('message-input').addEventListener('input', function(e) {
-    const input = e.target;
-    const text = input.value;
-    const cursorPos = input.selectionStart;
-    
-    // Check if we're typing a mention
-    const beforeCursor = text.slice(0, cursorPos);
-    const mentionMatch = beforeCursor.match(/@(\w*)$/);
-    
-    if (mentionMatch) {
-        const searchTerm = mentionMatch[1].toLowerCase();
-        const matches = Array.from(roomMembers.values())
-            .filter(member => member.username.toLowerCase().includes(searchTerm))
-            .slice(0, 5); // Limit to 5 suggestions
-        
-        if (matches.length > 0) {
-            showMentionSuggestions(matches, input, mentionMatch[0]);
-        } else {
-            hideMentionSuggestions();
-        }
-    } else {
-        hideMentionSuggestions();
-    }
-});
-
-// Add click outside handler
-document.addEventListener('click', function(e) {
-    if (!mentionContainer.contains(e.target) && !messageInput.contains(e.target)) {
-        hideMentionSuggestions();
-    }
-});
-
-// Function to complete mention
-function completeMention(username, partial) {
-    const input = document.getElementById('message-input');
-    const text = input.value;
-    const cursorPos = input.selectionStart;
-    const beforeMention = text.slice(0, cursorPos - (partial ? partial.length : 0));
-    const afterMention = text.slice(cursorPos);
-    
-    input.value = beforeMention + '@' + username + ' ' + afterMention;
-    input.focus();
-    
-    // Set cursor position after the mention
-    const newCursorPos = beforeMention.length + username.length + 2; // +2 for @ and space
-    input.setSelectionRange(newCursorPos, newCursorPos);
-    
-    hideMentionSuggestions();
-}
-
-// Function to mention user
-function mentionUser(username) {
-    const messageInput = document.getElementById('message-input');
-    const mention = `@${username} `;
-    const cursorPos = messageInput.selectionStart;
-    const text = messageInput.value;
-    
-    // Insert at cursor position
-    messageInput.value = text.slice(0, cursorPos) + mention + text.slice(cursorPos);
-    messageInput.focus();
-    
-    // Move cursor after mention
-    const newCursorPos = cursorPos + mention.length;
-    messageInput.setSelectionRange(newCursorPos, newCursorPos);
+    window.location.reload();
 }
 
 function formatMessage(text) {
     return escapeHtml(text);
 }
 
-function downloadAsText() {
-    const text = messageHistory.map(msg => 
-        `[${new Date(msg.timestamp).toLocaleString()}] ${msg.username}: ${msg.message}`
-    ).join('\n');
+function formatMessage(text, mentions) {
+    // Escape HTML to prevent XSS
+    text = text.replace(/[&<>"']/g, char => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
     
-    downloadFile(text, 'chat-history.txt', 'text/plain');
+    // Highlight mentions
+    mentions.forEach(mention => {
+        const regex = new RegExp(`@${mention}\\b`, 'g');
+        text = text.replace(regex, `<span class="text-blue-400">@${mention}</span>`);
+    });
+    
+    // Convert URLs to links
+    text = text.replace(
+        /(https?:\/\/[^\s<]+[^<.,:;"')\]\s])/g,
+        '<a href="$1" target="_blank" class="text-blue-400 hover:underline">$1</a>'
+    );
+    
+    return text;
+}
+
+function extractMentions(text) {
+    const mentions = [];
+    const mentionRegex = /@(\w+)/g;
+    let match;
+    
+    while ((match = mentionRegex.exec(text)) !== null) {
+        mentions.push(match[1]);
+    }
+    
+    return mentions;
+}
+
+async function sendMessage(message) {
+    if (!message) return;
+    
+    if (!currentUsername || !currentRoom) {
+        console.error('Cannot send message - not properly connected:', { 
+            currentUsername, 
+            currentSocketId,
+            currentRoom 
+        });
+        showError('Cannot send message - not properly connected to room');
+        return;
+    }
+    
+    const messageData = {
+        content: message,
+        sender: currentUsername,
+        roomId: currentRoom,
+        timestamp: Date.now(),
+        mentions: extractMentions(message)
+    };
+    
+    console.log('Sending message:', messageData);
+
+    try {
+        // First decrypt the room key using our private key
+        const roomKey = CryptoJS.AES.decrypt(
+            currentRoomKey,
+            currentRoomPrivateKey
+        ).toString(CryptoJS.enc.Utf8);
+
+        // Generate a random IV
+        const iv = CryptoJS.lib.WordArray.random(16);
+
+        // Encrypt message with room key
+        const encryptedContent = CryptoJS.AES.encrypt(
+            JSON.stringify(messageData),
+            roomKey,
+            {
+                iv: iv,
+                mode: CryptoJS.mode.CBC,
+                padding: CryptoJS.pad.Pkcs7
+            }
+        );
+
+        // Send encrypted message
+        ws.send(JSON.stringify({
+            event: 'message',
+            data: {
+                roomId: currentRoom,
+                encryptedContent: encryptedContent.toString(),
+                iv: iv.toString(CryptoJS.enc.Hex)
+            }
+        }));
+
+        // Clear input
+        document.getElementById('message-input').value = '';
+    } catch (error) {
+        console.error('Error encrypting message:', error);
+        showError('Failed to encrypt message');
+    }
+}
+
+document.getElementById('send-message').addEventListener('click', () => {
+    const messageInput = document.getElementById('message-input');
+    const message = messageInput.value.trim();
+    if (message) {
+        sendMessage(message);
+        messageInput.value = '';
+    }
+});
+
+document.getElementById('message-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const message = e.target.value.trim();
+        if (message) {
+            sendMessage(message);
+            e.target.value = '';
+        }
+    }
+});
+
+// Add message event listener to the form
+document.getElementById('message-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const messageInput = document.getElementById('message-input');
+    const message = messageInput.value.trim();
+    if (message) {
+        sendMessage(message);
+        messageInput.value = '';
+    }
+});
+
+// Add click event listener to send button
+document.getElementById('send-message').addEventListener('click', () => {
+    const messageInput = document.getElementById('message-input');
+    const message = messageInput.value.trim();
+    if (message) {
+        sendMessage(message);
+        messageInput.value = '';
+    }
+});
+
+function showError(message) {
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in';
+    errorDiv.textContent = message;
+    
+    document.body.appendChild(errorDiv);
+    
+    setTimeout(() => {
+        errorDiv.classList.add('animate-fade-out');
+        setTimeout(() => {
+            errorDiv.remove();
+        }, 300);
+    }, 3000);
+}
+
+function handleMessage(data) {
+    try {
+        // First decrypt the room key using our private key
+        const roomKey = CryptoJS.AES.decrypt(
+            currentRoomKey,
+            currentRoomPrivateKey
+        ).toString(CryptoJS.enc.Utf8);
+
+        // Decrypt the message content
+        const decryptedContent = CryptoJS.AES.decrypt(
+            data.encryptedContent,
+            roomKey,
+            {
+                iv: CryptoJS.enc.Hex.parse(data.iv),
+                mode: CryptoJS.mode.CBC,
+                padding: CryptoJS.pad.Pkcs7
+            }
+        ).toString(CryptoJS.enc.Utf8);
+
+        const messageData = JSON.parse(decryptedContent);
+        console.log('Decrypted message:', messageData);
+
+        // Create and add message to DOM
+        const messagesDiv = document.getElementById('messages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = 'message-container p-2';
+        messageDiv.innerHTML = `
+            <div class="flex items-start space-x-2 p-3 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors">
+                <div class="flex-shrink-0">
+                    <div class="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center">
+                        <span class="text-white text-sm">${messageData.sender.charAt(0).toUpperCase()}</span>
+                    </div>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-baseline space-x-2">
+                        <span class="font-medium text-white">${messageData.sender}</span>
+                        <span class="text-xs text-gray-400">${new Date(messageData.timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div class="mt-1 text-gray-200 break-words">${formatMessage(messageData.content, messageData.mentions)}</div>
+                </div>
+            </div>
+        `;
+        messagesDiv.appendChild(messageDiv);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    } catch (error) {
+        console.error('Error processing message:', error);
+        console.error('Error details:', { data, currentRoomKey, currentRoomPrivateKey });
+    }
+}
+
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function displayMessage({ username, message, timestamp, isSystem, mentions = [] }) {
+    // Check if message has already been displayed
+    const messageId = `${username}-${timestamp}-${message}`;
+    if (displayedMessages.has(messageId)) {
+        return;
+    }
+    displayedMessages.add(messageId);
+
+    const messagesDiv = document.getElementById('messages');
+    const messageElement = document.createElement('div');
+    
+    // Check if user was near bottom before adding new message
+    const isNearBottom = messagesDiv.scrollTop + messagesDiv.clientHeight >= messagesDiv.scrollHeight - 50;
+
+    // Rest of the message display logic
+    messageElement.className = `p-4 ${isSystem ? 'bg-gray-800' : 'hover:bg-gray-800'} transition-colors duration-200`;
+    const formattedMessage = formatMessage(message, mentions);
+    
+    if (isSystem) {
+        messageElement.innerHTML = `
+            <div class="text-gray-400 text-sm">${formattedMessage}</div>
+        `;
+    } else {
+        messageElement.innerHTML = `
+            <div class="flex items-start">
+                <div class="flex-1">
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold text-primary-400">${escapeHtml(username)}</span>
+                        <span class="text-xs text-gray-500">${new Date(timestamp).toLocaleTimeString()}</span>
+                    </div>
+                    <div class="text-gray-300 mt-1">${formattedMessage}</div>
+                </div>
+            </div>
+        `;
+    }
+    
+    messagesDiv.appendChild(messageElement);
+    
+    // Auto-scroll only if user was already near bottom
+    if (isNearBottom) {
+        scrollToBottom();
+    }
+}
+
+function downloadAsText() {
+    const messages = document.getElementById('messages').children;
+    let content = '';
+    
+    Array.from(messages).forEach(msg => {
+        if (msg.classList.contains('text-gray-400')) {
+            // System message
+            content += `[System] ${msg.textContent}\n`;
+        } else {
+            // Regular message
+            const username = msg.querySelector('.font-semibold').textContent;
+            const time = msg.querySelector('.text-xs').textContent;
+            const messageText = msg.querySelector('.text-gray-300').textContent;
+            content += `[${time}] ${username}: ${messageText}\n`;
+        }
+    });
+    
+    downloadFile(content, 'chat-messages.txt', 'text/plain');
 }
 
 function downloadAsCSV() {
-    const header = 'Timestamp,Username,Message\n';
-    const csv = messageHistory.map(msg => 
-        `"${msg.timestamp}","${msg.username}","${msg.message.replace(/"/g, '""')}"`
-    ).join('\n');
+    const messages = document.getElementById('messages').children;
+    let content = 'Timestamp,Username,Message\n';
     
-    downloadFile(header + csv, 'chat-history.csv', 'text/csv');
+    Array.from(messages).forEach(msg => {
+        if (msg.classList.contains('text-gray-400')) {
+            // System message
+            content += `${new Date().toISOString()},System,${msg.textContent}\n`;
+        } else {
+            // Regular message
+            const username = msg.querySelector('.font-semibold').textContent;
+            const time = msg.querySelector('.text-xs').textContent;
+            const messageText = msg.querySelector('.text-gray-300').textContent;
+            content += `${time},${username},"${messageText.replace(/"/g, '""')}"\n`;
+        }
+    });
+    
+    downloadFile(content, 'chat-messages.csv', 'text/csv');
 }
 
 function downloadFile(content, filename, type) {
     const blob = new Blob([content], { type: type });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.style.display = 'none';
     a.href = url;
     a.download = filename;
-    document.body.appendChild(a);
     a.click();
     window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+}
+
+function scrollToBottom() {
+    const messagesDiv = document.getElementById('messages');
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+}
+
+// Track displayed messages to prevent duplicates
+const displayedMessages = new Set();
+
+// Set up UI event listeners
+function setupUIEventListeners() {
+    console.log('Setting up UI event listeners...');
+    
+    // Event handlers for room buttons
+    document.getElementById('create-room-btn').addEventListener('click', () => {
+        document.getElementById('join-container').classList.add('hidden');
+        document.getElementById('create-room-container').classList.remove('hidden');
+    });
+
+    document.getElementById('join-room-btn').addEventListener('click', () => {
+        document.getElementById('join-container').classList.add('hidden');
+        document.getElementById('join-room-form').classList.remove('hidden');
+    });
+
+    // Back buttons
+    document.querySelectorAll('.back-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.getElementById('create-room-container').classList.add('hidden');
+            document.getElementById('join-room-form').classList.add('hidden');
+            document.getElementById('join-container').classList.remove('hidden');
+        });
+    });
+
+    // Create room submit
+    document.getElementById('create-room-submit').addEventListener('click', () => {
+        const username = document.getElementById('create-username').value;
+        const description = document.getElementById('room-description').value;
+        const maxMembers = parseInt(document.getElementById('room-max-members').value);
+        const password = document.getElementById('room-password').value;
+
+        if (!username) {
+            alert('Please enter a username');
+            return;
+        }
+
+        if (!currentSocketId) {
+            console.error('Socket ID not set yet');
+            showError('Not connected to server. Please try again.');
+            return;
+        }
+
+        ws.send(JSON.stringify({
+            event: 'create-room',
+            data: {
+                username,
+                description,
+                maxMembers,
+                password,
+                userId: currentSocketId
+            }
+        }));
+    });
+
+    // Join room submit
+    document.getElementById('join-room-submit').addEventListener('click', () => {
+        const username = document.getElementById('username').value;
+        const roomId = document.getElementById('room-id').value;
+        const password = document.getElementById('join-room-password').value;
+
+        if (!username || !roomId) {
+            alert('Please enter both username and room ID');
+            return;
+        }
+
+        if (!currentSocketId) {
+            console.error('Socket ID not set yet');
+            showError('Not connected to server. Please try again.');
+            return;
+        }
+
+        ws.send(JSON.stringify({
+            event: 'join-room',
+            data: {
+                username,
+                roomId,
+                password,
+                userId: currentSocketId
+            }
+        }));
+    });
+
+    // Password toggle
+    document.getElementById('room-password-toggle').addEventListener('change', (e) => {
+        const passwordGroup = document.getElementById('room-password-group');
+        passwordGroup.classList.toggle('hidden', !e.target.checked);
+    });
+
+    // Add download and leave room button listeners
+    document.getElementById('download-txt').addEventListener('click', downloadAsText);
+    document.getElementById('download-csv').addEventListener('click', downloadAsCSV);
+    document.getElementById('leave-room').addEventListener('click', leaveRoom);
+
+    // Add copy room ID button listener
+    document.getElementById('copy-room-id').addEventListener('click', () => {
+        const roomIdText = document.getElementById('room-id-display').textContent;
+        // Extract just the ID part (assuming format is "Room ID: XXX")
+        const roomId = roomIdText.split(':')[1]?.trim() || roomIdText;
+        navigator.clipboard.writeText(roomId).then(() => {
+            // Change button color temporarily to indicate success
+            const button = document.getElementById('copy-room-id');
+            button.classList.remove('text-gray-400');
+            button.classList.add('text-green-400');
+            setTimeout(() => {
+                button.classList.remove('text-green-400');
+                button.classList.add('text-gray-400');
+            }, 1000);
+        });
+    });
+    
+    // Handle page unload
+    window.addEventListener('beforeunload', () => {
+        if (currentRoom && currentUsername && ws && ws.readyState === WebSocket.OPEN) {
+            sendEvent('leave-room', {
+                roomId: currentRoom,
+                username: currentUsername
+            });
+        }
+    });
+}
+
+// Update the room ID display function to format the ID display
+function updateRoomDisplay(roomName, roomId) {
+    document.getElementById('room-name-display').textContent = roomName;
+    document.getElementById('room-id-display').textContent = `Room ID: ${roomId}`;
+    document.title = `${roomName} - Chat Room`;
 }
 
 // Load app info
 fetch('/info.json')
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
     .then(info => {
-        // Update all app info elements
-        document.getElementById('app-name').textContent = info.name;
-        document.getElementById('app-version').textContent = `v${info.version}`;
-        document.getElementById('app-description').textContent = info.description;
-        document.getElementById('app-author').textContent = info.author;
+        console.log('Loaded app info:', info);
+        // Update all app info elements with fallbacks
+        document.getElementById('app-name').textContent = info.name || 'RoomPrivate';
+        document.getElementById('app-version').textContent = info.version ? `v${info.version}` : 'v0.0.1 Alpha';
+        document.getElementById('app-description').textContent = info.description || 'Secure, end-to-end encrypted chat rooms';
+        document.getElementById('app-author').textContent = info.author || 'Klee & C0de';
         
         const websiteLink = document.getElementById('app-website');
-        websiteLink.href = info.website;
-        websiteLink.textContent = info.website;
+        websiteLink.href = info.website || 'https://room.juliaklee.wtf';
     })
-    .catch(console.error);
-
-// Initialize everything when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-    // Add download button event listeners
-    document.getElementById('download-txt').addEventListener('click', downloadAsText);
-    document.getElementById('download-csv').addEventListener('click', downloadAsCSV);
-    
-    // Update leave room button to clear history
-    document.getElementById('leave-room').addEventListener('click', leaveRoom);
-    setupMessageInput();
-});
-
-// Add manual reconnect button if needed
-function addReconnectButton() {
-    const button = document.createElement('button');
-    button.className = 'fixed bottom-4 right-4 bg-primary-600 text-white px-4 py-2 rounded-lg shadow-lg hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2';
-    button.textContent = 'Reconnect';
-    button.style.display = 'none';
-    document.body.appendChild(button);
-    
-    // Show button when disconnected for too long
-    socket.on('disconnect', () => {
-        setTimeout(() => {
-            if (!socket.connected) {
-                button.style.display = 'block';
-            }
-        }, 10000);
+    .catch(error => {
+        console.error('Error loading app info:', error);
+        // Keep default values from HTML if info.json fails to load
     });
-    
-    socket.on('connect', () => {
-        button.style.display = 'none';
-    });
-}
