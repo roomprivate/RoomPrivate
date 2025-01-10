@@ -24,7 +24,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Expose the port your application uses
-EXPOSE 3000
+EXPOSE 2052
+
+# Set environment variable for the port
+ENV PORT=2052
 
 # Set the binary as the entrypoint
 CMD ["./room_private"]
