@@ -239,7 +239,6 @@ wss.on('connection', (ws: WebSocket) => {
                     data: messageData
                 }));
             }
-
             // Handle client disconnection
             ws.on('close', () => {
                 logger.info('Client disconnected', { socketId });
