@@ -4,460 +4,81 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RoomPrivate - Secure Chat</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 20px;
-            background-color: #f5f5f5;
-        }
-        .container {
-            max-width: 1000px;
-            margin: 0 auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            display: flex;
-            flex-direction: column;
-            height: calc(100vh - 40px);
-        }
-        .room-controls {
-            margin-bottom: 20px;
-        }
-        .chat-container {
-            display: flex;
-            flex: 1;
-            gap: 20px;
-            min-height: 0;
-        }
-        .chat-main {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            min-height: 0;
-        }
-        .member-sidebar {
-            width: 200px;
-            background: #f8f9fa;
-            padding: 15px;
-            border-radius: 8px;
-            overflow-y: auto;
-        }
-        input, button {
-            padding: 8px;
-            margin: 5px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        button {
-            background: #007bff;
-            color: white;
-            border: none;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        button:hover {
-            background: #0056b3;
-        }
-        #messages {
-            flex: 1;
-            overflow-y: auto;
-            border: 1px solid #ddd;
-            padding: 10px;
-            margin-bottom: 10px;
-            border-radius: 4px;
-            background: white;
-        }
-        .message {
-            margin: 5px 0;
-            padding: 8px;
-            border-radius: 4px;
-            max-width: 80%;
-            word-wrap: break-word;
-        }
-        .message.self {
-            background: #007bff;
-            color: white;
-            margin-left: auto;
-        }
-        .message.other {
-            background: #e9ecef;
-            margin-right: auto;
-        }
-        .message.system {
-            background: #ffd700;
-            margin: 5px auto;
-            text-align: center;
-            font-style: italic;
-            max-width: 60%;
-        }
-        .hidden {
-            display: none !important;
-        }
-        .member {
-            padding: 8px;
-            margin: 4px 0;
-            background: white;
-            border-radius: 4px;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.1);
-        }
-        .input-container {
-            display: flex;
-            gap: 10px;
-            padding: 10px 0;
-        }
-        #messageInput {
-            flex: 1;
-        }
-        .room-info {
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #ddd;
-        }
-    </style>
+    <link rel="stylesheet" href="styles/main.css">
 </head>
 <body>
-    <div class="container">
-        <div id="roomControls" class="room-controls">
-            <div id="createRoom">
-                <h2>Create Room</h2>
-                <input type="text" id="createRoomName" placeholder="Room Name" required>
-                <input type="text" id="createRoomDesc" placeholder="Room Description">
-                <input type="password" id="createRoomPassword" placeholder="Room Password (optional)">
-                <button onclick="createRoom()">Create Room</button>
+    <div class="app-container">
+        <!-- Left Sidebar -->
+        <div class="left-sidebar">
+            <div class="sidebar-header">
+                <h2>RoomPrivate</h2>
             </div>
+            <div class="room-actions">
+                <button id="createRoomBtn" class="action-btn">
+                    <i class="fas fa-plus"></i> Create Room
+                </button>
+                <button id="joinRoomBtn" class="action-btn">
+                    <i class="fas fa-sign-in-alt"></i> Join Room
+                </button>
+            </div>
+            <div id="roomControls" class="room-controls">
+                <div id="createRoom" class="control-panel hidden">
+                    <input type="text" id="createRoomName" placeholder="Room Name" required>
+                    <input type="text" id="createRoomDesc" placeholder="Room Description">
+                    <input type="password" id="createRoomPassword" placeholder="Room Password (optional)">
+                    <button class="btn-primary">Create</button>
+                </div>
 
-            <div id="joinRoom">
-                <h2>Join Room</h2>
-                <input type="text" id="joinKey" placeholder="Join Key" required>
-                <input type="password" id="joinPassword" placeholder="Room Password (if required)">
-                <input type="text" id="userName" placeholder="Your Name" required>
-                <button onclick="joinRoom()">Join Room</button>
+                <div id="joinRoom" class="control-panel hidden">
+                    <input type="text" id="joinKey" placeholder="Join Key" required>
+                    <input type="password" id="joinPassword" placeholder="Room Password (if required)">
+                    <input type="text" id="userName" placeholder="Your Name" required>
+                    <button class="btn-primary">Join</button>
+                </div>
             </div>
         </div>
 
-        <div id="chatArea" class="chat-container hidden">
-            <div class="chat-main">
-                <div class="room-info">
-                    <h2 id="roomName"></h2>
+        <!-- Main Chat Area -->
+        <div class="main-content">
+            <div id="chatArea" class="chat-container">
+                <div class="chat-header">
+                    <div class="header-main">
+                        <h2 id="roomName"></h2>
+                        <div class="room-id-container">
+                            <span class="room-id-label">Room ID:</span>
+                            <span id="roomId" class="room-id"></span>
+                            <button id="copyRoomId" class="btn-icon" title="Copy Room ID">
+                                <i class="fas fa-copy"></i>
+                            </button>
+                        </div>
+                    </div>
                     <p id="roomDescription"></p>
                 </div>
-                <div id="messages"></div>
+                <div id="messages" class="messages-container"></div>
                 <div class="input-container">
                     <input type="text" id="messageInput" placeholder="Type your message...">
-                    <button onclick="sendMessage()">Send</button>
-                    <button onclick="leaveRoom()" style="background: #dc3545;">Leave</button>
+                    <button class="btn-send">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
                 </div>
             </div>
-            <div class="member-sidebar">
+        </div>
+
+        <!-- Right Sidebar -->
+        <div class="right-sidebar">
+            <div class="sidebar-header">
                 <h3>Members</h3>
-                <div id="members"></div>
+                <span class="member-count">0</span>
+            </div>
+            <div id="members" class="members-list"></div>
+            <div class="sidebar-footer">
+                <button id="leaveRoom" class="action-btn danger">
+                    <i class="fas fa-sign-out-alt"></i> Leave Room
+                </button>
             </div>
         </div>
     </div>
 
-    <script>
-        let ws;
-        let currentRoom = null;
-        let currentUserName = '';
-        let crypto = {
-            key: null,
-            nonce: null,
-
-            async generateKey(keyString) {
-                try {
-                    const keyData = atob(keyString);
-                    const keyArray = new Uint8Array(keyData.length);
-                    for (let i = 0; i < keyData.length; i++) {
-                        keyArray[i] = keyData.charCodeAt(i);
-                    }
-                    
-                    // Generate a random nonce
-                    this.nonce = window.crypto.getRandomValues(new Uint8Array(12));
-                    
-                    // Import the key
-                    this.key = await window.crypto.subtle.importKey(
-                        "raw",
-                        keyArray,
-                        { name: "AES-GCM" },
-                        false, // extractable
-                        ["encrypt", "decrypt"]
-                    );
-                    console.log('Key generated successfully');
-                } catch (error) {
-                    console.error('Failed to generate key:', error);
-                    throw error;
-                }
-            },
-
-            async encrypt(text) {
-                if (!this.key) {
-                    throw new Error('Encryption key not set');
-                }
-
-                try {
-                    const encoder = new TextEncoder();
-                    const encodedText = encoder.encode(text);
-                    
-                    const encryptedData = await window.crypto.subtle.encrypt(
-                        {
-                            name: "AES-GCM",
-                            iv: this.nonce
-                        },
-                        this.key,
-                        encodedText
-                    );
-
-                    // Combine nonce and encrypted data
-                    const encryptedArray = new Uint8Array(encryptedData);
-                    const combined = new Uint8Array(this.nonce.length + encryptedArray.length);
-                    combined.set(this.nonce);
-                    combined.set(encryptedArray, this.nonce.length);
-
-                    // Convert to base64
-                    return btoa(String.fromCharCode.apply(null, combined));
-                } catch (error) {
-                    console.error('Encryption failed:', error);
-                    throw error;
-                }
-            },
-
-            async decrypt(encodedMessage) {
-                if (!this.key) {
-                    throw new Error('Decryption key not set');
-                }
-
-                try {
-                    // Convert base64 to array
-                    const binaryString = atob(encodedMessage);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) {
-                        bytes[i] = binaryString.charCodeAt(i);
-                    }
-
-                    // Extract nonce and ciphertext
-                    const messageNonce = bytes.slice(0, 12);
-                    const ciphertext = bytes.slice(12);
-
-                    // Decrypt
-                    const decryptedData = await window.crypto.subtle.decrypt(
-                        {
-                            name: "AES-GCM",
-                            iv: messageNonce
-                        },
-                        this.key,
-                        ciphertext
-                    );
-
-                    // Convert to text
-                    return new TextDecoder().decode(decryptedData);
-                } catch (error) {
-                    console.error('Decryption failed:', error);
-                    throw error;
-                }
-            }
-        };
-
-        function updateMemberList(members) {
-            const membersDiv = document.getElementById('members');
-            membersDiv.innerHTML = '';
-            members.forEach(member => {
-                const div = document.createElement('div');
-                div.className = 'member';
-                div.textContent = member;
-                membersDiv.appendChild(div);
-            });
-        }
-
-        async function createRoom() {
-            const name = document.getElementById('createRoomName').value.trim();
-            const description = document.getElementById('createRoomDesc').value.trim();
-            const password = document.getElementById('createRoomPassword').value.trim();
-            
-            if (!name) {
-                alert('Room name is required');
-                return;
-            }
-
-            currentUserName = 'Owner';
-            
-            ws.send(JSON.stringify({
-                type: 'create_room',
-                name,
-                description,
-                password: password || undefined
-            }));
-        }
-
-        async function joinRoom() {
-            const joinKey = document.getElementById('joinKey').value.trim();
-            const password = document.getElementById('joinPassword').value.trim();
-            const name = document.getElementById('userName').value.trim();
-            
-            if (!joinKey || !name) {
-                alert('Join key and name are required');
-                return;
-            }
-
-            currentUserName = name;
-            
-            ws.send(JSON.stringify({
-                type: 'join_room',
-                join_key: joinKey,
-                password: password || undefined,
-                name
-            }));
-        }
-
-        async function sendMessage() {
-            const input = document.getElementById('messageInput');
-            const text = input.value.trim();
-            if (!text) return;
-            
-            try {
-                const encrypted = await crypto.encrypt(text);
-                ws.send(JSON.stringify({
-                    type: 'chat_message',
-                    content: encrypted
-                }));
-                
-                appendMessage(`You: ${text}`, 'self');
-                input.value = '';
-            } catch (error) {
-                console.error('Failed to send message:', error);
-                alert('Failed to send message: ' + error.message);
-            }
-        }
-
-        function leaveRoom() {
-            ws.send(JSON.stringify({ type: 'leave_room' }));
-            showRoomControls();
-            currentRoom = null;
-            crypto.key = null;
-            crypto.nonce = null;
-            currentUserName = '';
-            document.getElementById('messages').innerHTML = '';
-            document.getElementById('members').innerHTML = '';
-        }
-
-        function appendMessage(text, type) {
-            const messages = document.getElementById('messages');
-            const div = document.createElement('div');
-            div.textContent = text;
-            div.className = `message ${type}`;
-            messages.appendChild(div);
-            messages.scrollTop = messages.scrollHeight;
-        }
-
-        function showChatArea() {
-            document.getElementById('roomControls').classList.add('hidden');
-            document.getElementById('chatArea').classList.remove('hidden');
-            document.getElementById('roomName').textContent = currentRoom.name;
-        }
-
-        function showRoomControls() {
-            document.getElementById('roomControls').classList.remove('hidden');
-            document.getElementById('chatArea').classList.add('hidden');
-            // Clear input fields
-            document.getElementById('createRoomName').value = '';
-            document.getElementById('createRoomDesc').value = '';
-            document.getElementById('createRoomPassword').value = '';
-            document.getElementById('joinKey').value = '';
-            document.getElementById('joinPassword').value = '';
-            document.getElementById('userName').value = '';
-        }
-
-        // Handle enter key in message input
-        document.getElementById('messageInput')?.addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') {
-                sendMessage();
-            }
-        });
-
-        // Initialize connection
-        function connect() {
-            ws = new WebSocket(`ws://${window.location.hostname}:2052/ws`);
-            
-            ws.onmessage = async function(event) {
-                const message = JSON.parse(event.data);
-                console.log('Received message:', message);
-                
-                switch(message.type) {
-                    case 'room_created':
-                        currentRoom = message.room_info;
-                        try {
-                            await crypto.generateKey(message.encryption_key);
-                            showChatArea();
-                            document.getElementById('roomName').textContent = currentRoom.name;
-                            document.getElementById('roomDescription').textContent = currentRoom.description || '';
-                            alert(`Room created! Join key: ${currentRoom.join_key}`);
-                        } catch (error) {
-                            console.error('Failed to setup room:', error);
-                            alert('Failed to setup room encryption');
-                        }
-                        break;
-                        
-                    case 'room_joined':
-                        currentRoom = message.room_info;
-                        try {
-                            await crypto.generateKey(message.encryption_key);
-                            showChatArea();
-                            document.getElementById('roomName').textContent = currentRoom.name;
-                            document.getElementById('roomDescription').textContent = currentRoom.description || '';
-                            updateMemberList(message.participants);
-                            appendMessage('You joined the room', 'system');
-                        } catch (error) {
-                            console.error('Failed to join room:', error);
-                            alert('Failed to setup room encryption');
-                        }
-                        break;
-                        
-                    case 'participant_joined':
-                        appendMessage(`${message.name} joined the room`, 'system');
-                        // Request updated member list
-                        ws.send(JSON.stringify({ type: 'get_members' }));
-                        break;
-                        
-                    case 'participant_left':
-                        appendMessage(`${message.name} left the room`, 'system');
-                        // Request updated member list
-                        ws.send(JSON.stringify({ type: 'get_members' }));
-                        break;
-                        
-                    case 'chat_message':
-                        try {
-                            console.log('Attempting to decrypt:', message.content);
-                            const decrypted = await crypto.decrypt(message.content);
-                            console.log('Decrypted successfully:', decrypted);
-                            appendMessage(`${message.sender}: ${decrypted}`, 'other');
-                        } catch (error) {
-                            console.error('Failed to decrypt message:', error);
-                            appendMessage(`Failed to decrypt message from ${message.sender}`, 'system');
-                        }
-                        break;
-
-                    case 'member_list':
-                        updateMemberList(message.members);
-                        break;
-                        
-                    case 'error':
-                        alert(message.message);
-                        break;
-                }
-            };
-
-            ws.onclose = function() {
-                appendMessage('Disconnected from server. Reconnecting...', 'system');
-                setTimeout(connect, 1000);
-            };
-
-            ws.onerror = function() {
-                appendMessage('Connection error occurred', 'system');
-            };
-        }
-
-        connect();
-    </script>
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>
