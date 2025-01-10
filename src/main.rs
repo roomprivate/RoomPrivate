@@ -13,7 +13,6 @@ async fn main() {
     let server = Server::new();
     let server = std::sync::Arc::new(server);
 
-    // WebSocket handler
     let ws_route = warp::path("ws")
         .and(warp::ws())
         .map(move |ws: warp::ws::Ws| {
@@ -26,10 +25,8 @@ async fn main() {
             })
         });
 
-    // Serve static files from the public directory
     let static_files = warp::fs::dir("public");
 
-    // Combine routes
     let routes = ws_route
         .or(static_files)
         .with(warp::cors().allow_any_origin());

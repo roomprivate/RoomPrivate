@@ -31,13 +31,11 @@ impl Server {
         let (mut ws_tx, mut ws_rx) = ws.split();
         let (tx, mut rx) = mpsc::unbounded_channel();
 
-        // Store connection
         {
             let mut connections = self.connections.write().await;
             connections.insert(participant_id.clone(), tx);
         }
 
-        // Handle incoming messages
         let rooms = self.rooms.clone();
         let connections = self.connections.clone();
         let participant_id_clone = participant_id.clone();
@@ -61,11 +59,9 @@ impl Server {
                 }
             }
 
-            // Clean up on disconnect
             Self::handle_disconnect(&participant_id_clone, &rooms, &connections).await;
         });
 
-        // Forward messages to client
         tokio::spawn(async move {
             while let Some(msg) = rx.recv().await {
                 if ws_tx.send(msg).await.is_err() {
@@ -92,7 +88,6 @@ impl Server {
                     rooms_lock.insert(room_info.id.clone(), room.clone());
                 }
 
-                // Add the creator as first member
                 room.add_participant(participant_id.to_string(), "Owner".to_string()).await;
 
                 Self::send_message_to_participant(
@@ -104,7 +99,6 @@ impl Server {
                     connections,
                 ).await;
 
-                // Send initial member list
                 Self::broadcast_member_list(&room, connections).await;
             },
 
@@ -126,7 +120,6 @@ impl Server {
                 if let Some(room) = room_to_join {
                     room.add_participant(participant_id.to_string(), name.clone()).await;
                     
-                    // Send room info to the new participant first
                     let participants: Vec<String> = room.get_participants().await
                         .into_iter()
                         .map(|(_, name)| name)
@@ -142,15 +135,12 @@ impl Server {
                         connections,
                     ).await;
 
-                    // Then notify all participants about the new member
                     Self::broadcast_to_room_except(
                         &room,
                         ServerMessage::ParticipantJoined { name },
                         connections,
                         Some(participant_id),
                     ).await;
-
-                    // Update member list for all participants
                     Self::broadcast_member_list(&room, connections).await;
                 } else {
                     Self::send_message_to_participant(
@@ -174,7 +164,6 @@ impl Server {
                             .map(|(_, name)| name.clone())
                             .unwrap_or_default();
 
-                        // The message is already encrypted by the client, just broadcast it
                         Self::broadcast_to_room_except(
                             room,
                             ServerMessage::ChatMessage {
@@ -182,7 +171,7 @@ impl Server {
                                 content,
                             },
                             connections,
-                            Some(participant_id), // Don't send back to sender
+                            Some(participant_id),
                         ).await;
                         break;
                     }
@@ -228,7 +217,6 @@ impl Server {
             if let Some((_, name)) = participants.iter().find(|(id, _)| id == participant_id) {
                 room.remove_participant(participant_id).await;
                 
-                // Notify others that participant left
                 Self::broadcast_to_room_except(
                     room,
                     ServerMessage::ParticipantLeft {
@@ -238,7 +226,7 @@ impl Server {
                     Some(participant_id),
                 ).await;
 
-                // Update member list for remaining participants
+
                 Self::broadcast_member_list(room, connections).await;
             }
         }
