@@ -617,18 +617,21 @@ async function sendMessage(message) {
     console.log('Sending message:', messageData);
 
     try {
-        // First decrypt the room key using our private key
+        // First decrypt the room key
         const roomKey = CryptoJS.AES.decrypt(
             currentRoomKey,
             currentRoomPrivateKey
         ).toString(CryptoJS.enc.Utf8);
 
-        // Generate a random IV
-        const iv = CryptoJS.lib.WordArray.random(16);
+        // Convert message data to string
+        const messageString = JSON.stringify(messageData);
 
-        // Encrypt message with room key
+        // Generate IV
+        const iv = CryptoJS.lib.WordArray.random(128/8);
+
+        // Encrypt message with decrypted room key
         const encryptedContent = CryptoJS.AES.encrypt(
-            JSON.stringify(messageData),
+            messageString,
             roomKey,
             {
                 iv: iv,
@@ -713,14 +716,14 @@ function showError(message) {
 
 function handleMessage(data) {
     try {
-        // First decrypt the room key using our private key
+        // First decrypt the room key
         const roomKey = CryptoJS.AES.decrypt(
             currentRoomKey,
             currentRoomPrivateKey
         ).toString(CryptoJS.enc.Utf8);
 
-        // Decrypt the message content
-        const decryptedContent = CryptoJS.AES.decrypt(
+        // Then decrypt the message with the room key
+        const decryptedBytes = CryptoJS.AES.decrypt(
             data.encryptedContent,
             roomKey,
             {
@@ -728,9 +731,14 @@ function handleMessage(data) {
                 mode: CryptoJS.mode.CBC,
                 padding: CryptoJS.pad.Pkcs7
             }
-        ).toString(CryptoJS.enc.Utf8);
+        );
 
-        const messageData = JSON.parse(decryptedContent);
+        const decryptedString = decryptedBytes.toString(CryptoJS.enc.Utf8);
+        if (!decryptedString) {
+            throw new Error('Failed to decrypt message content');
+        }
+
+        const messageData = JSON.parse(decryptedString);
         console.log('Decrypted message:', messageData);
 
         // Create and add message to DOM
