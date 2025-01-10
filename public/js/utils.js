@@ -55,17 +55,25 @@ function generateInitials(username) {
  * @returns {Object} The encrypted message and IV
  */
 function encryptMessage(message, key) {
-    const iv = CryptoJS.lib.WordArray.random(16);
-    const encrypted = CryptoJS.AES.encrypt(message, key, {
-        iv: iv,
-        mode: CryptoJS.mode.CBC,
-        padding: CryptoJS.pad.Pkcs7
-    });
-    
-    return {
-        content: encrypted.toString(),
-        iv: iv.toString()
-    };
+    try {
+        // Convert the key to a valid format
+        const keyBytes = CryptoJS.enc.Utf8.parse(key);
+        const iv = CryptoJS.lib.WordArray.random(16);
+        
+        const encrypted = CryptoJS.AES.encrypt(message, keyBytes, {
+            iv: iv,
+            mode: CryptoJS.mode.CBC,
+            padding: CryptoJS.pad.Pkcs7
+        });
+        
+        return {
+            content: encrypted.toString(),
+            iv: CryptoJS.enc.Hex.stringify(iv)
+        };
+    } catch (error) {
+        console.error('Encryption error:', error);
+        throw error;
+    }
 }
 
 /**
@@ -76,13 +84,22 @@ function encryptMessage(message, key) {
  * @returns {string} The decrypted message
  */
 function decryptMessage(encryptedMessage, iv, key) {
-    const decrypted = CryptoJS.AES.decrypt(encryptedMessage, key, {
-        iv: CryptoJS.enc.Hex.parse(iv),
-        mode: CryptoJS.mode.CBC,
-        padding: CryptoJS.pad.Pkcs7
-    });
-    
-    return decrypted.toString(CryptoJS.enc.Utf8);
+    try {
+        // Convert the key to a valid format
+        const keyBytes = CryptoJS.enc.Utf8.parse(key);
+        const ivBytes = CryptoJS.enc.Hex.parse(iv);
+        
+        const decrypted = CryptoJS.AES.decrypt(encryptedMessage, keyBytes, {
+            iv: ivBytes,
+            mode: CryptoJS.mode.CBC,
+            padding: CryptoJS.pad.Pkcs7
+        });
+        
+        return decrypted.toString(CryptoJS.enc.Utf8);
+    } catch (error) {
+        console.error('Decryption error:', error);
+        throw error;
+    }
 }
 
 /**

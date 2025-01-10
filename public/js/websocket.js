@@ -50,6 +50,12 @@ class WebSocketClient {
         // Event handling
         this.eventHandlers = new Map();
         
+        // Message cache for handling incomplete server responses
+        this.messageCache = new Map();
+        
+        // Make message cache globally accessible
+        window.messageCache = this.messageCache;
+        
         // Bind methods
         this.handleOpen = this.handleOpen.bind(this);
         this.handleClose = this.handleClose.bind(this);
@@ -153,10 +159,43 @@ class WebSocketClient {
         this.updateLastMessageTime();
         try {
             const data = JSON.parse(event.data);
+            console.log('WebSocket message received:', data);
+            
+            // Special handling for member-related events
+            if (data.event === 'members' || data.event === 'member-joined' || data.event === 'member-left') {
+                console.log('Member event received:', data.event, data.data);
+            }
+            
             if (data.event === 'connected') {
                 this.currentSocketId = data.data.socketId;
                 console.log('Socket ID set:', this.currentSocketId);
                 this.emit('connected', data.data);
+            } else if (data.event === 'message') {
+                // Log full message structure
+                console.log('Message event received. Full data:', JSON.stringify(data.data, null, 2));
+                
+                // Try to get complete message data from cache
+                const cachedMessage = this.messageCache.get(data.data.iv);
+                if (cachedMessage) {
+                    console.log('Found cached message data:', cachedMessage);
+                    // Merge cached data with received data
+                    const completeMessage = {
+                        ...data.data,
+                        ...cachedMessage
+                    };
+                    console.log('Emitting complete message:', completeMessage);
+                    this.emit(data.event, completeMessage);
+                } else {
+                    // If not in cache, still emit with all available data
+                    console.log('No cached data found for message');
+                    this.emit(data.event, {
+                        ...data.data,
+                        content: data.data.content || '',  // Ensure content exists
+                        sender: data.data.sender,
+                        username: data.data.username,
+                        timestamp: data.data.timestamp || new Date().toISOString()
+                    });
+                }
             } else {
                 this.emit(data.event, data.data);
             }
@@ -215,15 +254,45 @@ class WebSocketClient {
             throw new Error('Not connected to server');
         }
 
-        try {
-            const message = JSON.stringify({ event, data });
-            console.log('Sending:', message);
-            this.ws.send(message);
-            return true;
-        } catch (error) {
-            console.error('Failed to send message:', error);
-            throw new Error('Failed to send message');
+        // Cache message data for message events
+        if (event === 'message') {
+            console.log('Preparing to cache message data:', { event, data });
+            
+            // Generate cache key from IV
+            const cacheKey = data.iv;
+            
+            // Create message data with sender info
+            const messageData = {
+                roomId: data.roomId,
+                content: data.content,
+                iv: data.iv,
+                sender: window.state?.userId,
+                username: window.state?.username,
+                timestamp: data.timestamp || new Date().toISOString()
+            };
+            
+            console.log('Caching message data with key:', cacheKey, messageData);
+            this.messageCache.set(cacheKey, messageData);
+            
+            // Debug log cache contents
+            console.log('Current cache contents:', {
+                size: this.messageCache.size,
+                keys: [...this.messageCache.keys()],
+                cached: [...this.messageCache.values()]
+            });
         }
+
+        const message = JSON.stringify({
+            event,
+            data: {
+                ...data,
+                sender: window.state?.userId,
+                username: window.state?.username
+            }
+        });
+        
+        console.log('Sending:', message);
+        this.ws.send(message);
     }
 
     /**
@@ -232,6 +301,7 @@ class WebSocketClient {
      * @param {Function} handler - The event handler
      */
     on(event, handler) {
+        console.log('Registering handler for event:', event);
         if (!this.eventHandlers.has(event)) {
             this.eventHandlers.set(event, new Set());
         }
