@@ -20,7 +20,6 @@ pub enum CryptoError {
 pub struct RoomCrypto {
     cipher: Aes256Gcm,
 }
-
 impl RoomCrypto {
     pub fn new() -> (Self, String) {
         let mut key_bytes = [0u8; 32];
@@ -77,7 +76,6 @@ impl RoomCrypto {
         String::from_utf8(plaintext)
             .map_err(|_| CryptoError::DecryptionError)
     }
-
     pub fn generate_join_key(room_id: &str, password: Option<&str>) -> String {
         let mut hasher = Sha256::new();
         hasher.update(room_id.as_bytes());
