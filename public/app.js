@@ -623,6 +623,8 @@ async function sendMessage(message) {
             currentRoomPrivateKey
         ).toString(CryptoJS.enc.Utf8);
 
+        console.log(roomKey)
+
         // Generate a random IV
         const iv = CryptoJS.lib.WordArray.random(16);
 
