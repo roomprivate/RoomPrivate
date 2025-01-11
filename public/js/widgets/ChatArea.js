@@ -1,3 +1,5 @@
+import markdownProcessor from '../markdown.js';
+
 export class ChatArea {
     constructor(container, callbacks) {
         this.container = container;
@@ -132,16 +134,16 @@ export class ChatArea {
             `;
         } else {
             messageDiv.innerHTML = `
-                <div class="message-content">
+                <div class="message-content ${type}">
                     ${type === 'self' ? '' : `<div class="message-sender">${sender}</div>`}
-                    <div class="message-text">${text}</div>
+                    <div class="message-text markdown-content">${text}</div>
                     <div class="message-time">${timestamp}</div>
                 </div>
             `;
         }
         
         messagesDiv.appendChild(messageDiv);
-        messagesDiv.parentNode.scrollTop = messagesDiv.parentNode.scrollHeight;
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
     show() {
