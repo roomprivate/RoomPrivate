@@ -4,3 +4,8 @@ updates:
     directory: "/" # Location of package manifest
     schedule:
       interval: "daily"
+      
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "daily"
