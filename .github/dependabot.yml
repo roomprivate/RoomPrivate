@@ -1,6 +1,6 @@
 version: 2
 updates:
   - package-ecosystem: "cargo"
-    directory: "/" # Location of package manifests
+    directory: "/" # Location of package manifest
     schedule:
       interval: "daily"
