@@ -4,11 +4,6 @@ updates:
     directory: "/" # Location of package manifest
     schedule:
       interval: "daily"
-    groups:
-      production-dependencies:
-        dependency-type: "production"
-      development-dependencies:
-        dependency-type: "development"
       
   - package-ecosystem: "docker"
     directory: "/"
