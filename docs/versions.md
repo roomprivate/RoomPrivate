@@ -12,6 +12,7 @@ We follow [Semantic Versioning 2.0.0](https://semver.org/), where each version n
 ---
 
 ### Version History
+There are some videos with incorrect versions displayed, as the Semantic versioning system wasn't implemented on the **website** to show the correct versions until 3.1.2.
 
 - **CSL**: c0dE's project that served as the base for RoomPrivate's room system. It was eventually remade into RPV1. [Showcase](https://youtube.com/shorts/yturQUrpWg0)
 - **1.0.0-alpha**: The first alpha test version of RoomPrivate, marking the transition from CSL to the new system. [Showcase](https://youtu.be/uMI_bCFlTbc)
@@ -27,4 +28,4 @@ We follow [Semantic Versioning 2.0.0](https://semver.org/), where each version n
 ---
 
 ### Note on Version Gaps:
-- The versions **2.2.0**, **2.3.0**, and a few others were never built or released because of development changes or focusing on other features. So, the version numbers **jumped** to show the bigger updates that were actually finished and released. These gaps just reflect what was happening behind the scenes, and no official versions came out for the skipped ones.
+- The versions **2.2.0**, **2.3.0**, and a few others were never built or released because of development changes or a shift in focus. As a result, the version numbers **jumped** to reflect the bigger updates that were actually finished and released. These gaps just reflect what was happening behind the scenes, and no official releases were made for the skipped versions.
