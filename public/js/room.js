@@ -164,9 +164,14 @@ class Room extends EventEmitter {
             alert('Room name and your name are required');
             return;
         }
-
+    
+        if (this.ws.readyState !== WebSocket.OPEN) {
+            alert('Connection lost. Please try again.');
+            return;
+        }
+    
         this.currentUserName = userName;
-        
+    
         this.ws.send(JSON.stringify({
             type: 'create_room',
             name,
