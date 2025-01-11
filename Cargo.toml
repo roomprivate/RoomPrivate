@@ -5,9 +5,10 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.35", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+uuid = { version = "1.6", features = ["v4"] }
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
-serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 aes-gcm = "0.10"
 rand = "0.8"
@@ -19,8 +20,9 @@ log = "0.4"
 env_logger = "0.10"
 thiserror = "1.0"
 async-trait = "0.1"
-<<<<<<< HEAD
 rustls = "0.21"
 rustls-pemfile = "1.0"
-=======
->>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
+
+[lints]
+clippy.pedantic = { level = "warn", priority = -1 }
+clippy.should_panic_without_expect = "deny"
