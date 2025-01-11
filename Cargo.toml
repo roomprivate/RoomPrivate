@@ -21,3 +21,7 @@ thiserror = "1.0"
 async-trait = "0.1"
 rustls = "0.21"
 rustls-pemfile = "1.0"
+
+[lints]
+clippy.pedantic = { level = "warn", priority = -1 }
+clippy.should_panic_without_expect = "deny"
