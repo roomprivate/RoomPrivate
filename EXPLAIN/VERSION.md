@@ -4,11 +4,11 @@
 Version in that context means "the main structure version."
 
 We have three main structure versions:  
-- **crl** = ChatRoomLegacy  
+- **csl** = ChatSystemLegacy  
 - **rpv1** = RoomPrivate v1  
 - **rpv2** = RoomPrivate v2  
 
-The **crl** is the room system used in RoomPrivate.
+The **csl** is the room system used in RoomPrivate.
 The **rpv1** is the legacy version (TypeScript backend).  
 The **rpv2** is the actual version, with a Rust backend and more stability.  
 
