@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 {
     "name": "RoomPrivate",
     "version": "2.0.1 Beta",
@@ -6,12 +5,3 @@
     "author": "Klee & C0de",
     "website": "https://room.juliaklee.wtf"
 }
-=======
-{
-    "name": "RoomPrivate",
-    "version": "2.0.1 Beta",
-    "description": "Secure, end-to-end encrypted chat rooms for private conversations",
-    "author": "Klee & C0de",
-    "website": "https://room.juliaklee.wtf"
-}
->>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
