@@ -17,6 +17,8 @@ class EventEmitter {
     }
 }
 
+import markdownProcessor from './markdown.js';
+
 class Room extends EventEmitter {
     constructor() {
         super();
@@ -60,7 +62,8 @@ class Room extends EventEmitter {
                         break;
                         
                     case 'chat_message':
-                        this.emit('message', message.content, 'other', message.sender);
+                        const processedContent = markdownProcessor.process(message.content);
+                        this.emit('message', processedContent, 'other', message.sender);
                         break;
 
                     case 'member_list':
@@ -118,19 +121,16 @@ class Room extends EventEmitter {
         }));
     }
 
-    sendMessage(text) {
-        if (!text || !this.ws || !this.currentRoom) return;
+    sendMessage(content) {
+        if (!content || !this.ws || !this.currentRoom) return;
         
-        try {
+        if (this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({
                 type: 'chat_message',
-                content: text
+                content: content
             }));
-            
-            this.emit('message', text, 'self');
-        } catch (error) {
-            console.error('Failed to send message:', error);
-            alert('Failed to send message: ' + error.message);
+            const processedContent = markdownProcessor.process(content);
+            this.emit('message', processedContent, 'self');
         }
     }
 

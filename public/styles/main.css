@@ -383,7 +383,6 @@ input, button {
 .room-id-label {
     color: #666;
     font-size: 0.9rem;
-    white-space: nowrap;
 }
 
 .room-id {
@@ -648,4 +647,75 @@ input, button {
         min-width: 20px;
         min-height: 20px;
     }
+}
+
+/* Markdown Styling */
+.markdown-content {
+    line-height: 1.5;
+    overflow-wrap: break-word;
+}
+
+.markdown-content p {
+    margin-bottom: 0.5em;
+}
+
+.markdown-content strong {
+    font-weight: 600;
+}
+
+.markdown-content em {
+    font-style: italic;
+}
+
+.markdown-content a {
+    color: #3498db;
+    text-decoration: none;
+}
+
+.markdown-content a:hover {
+    text-decoration: underline;
+}
+
+.markdown-content code {
+    background-color: var(--gray-800);
+    padding: 0.2em 0.4em;
+    border-radius: 3px;
+    font-family: monospace;
+}
+
+.markdown-content pre {
+    background-color: var(--gray-800);
+    padding: 1em;
+    border-radius: 4px;
+    overflow-x: auto;
+    margin: 0.5em 0;
+}
+
+.markdown-content ul, .markdown-content ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+}
+
+.markdown-content blockquote {
+    border-left: 3px solid var(--gray-300);
+    padding-left: 1em;
+    margin: 0.5em 0;
+    color: var(--gray-300);
+}
+
+/* Embed Link Styling */
+.embed-link {
+    display: inline-block;
+    padding: 0.2em 0.5em;
+    background-color: var(--gray-800);
+    border: 1px solid var(--gray-300);
+    border-radius: 3px;
+    color: var(--white);
+    text-decoration: none;
+    margin: 0.2em 0;
+}
+
+.embed-link:hover {
+    background-color: var(--gray-900);
+    text-decoration: none;
 }
