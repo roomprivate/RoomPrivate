@@ -86,7 +86,6 @@ async fn main() {
         .or(static_files)
         .with(warp::cors().allow_any_origin());
 
-<<<<<<< HEAD
     match load_tls_config() {
         Some(_) => {
             println!("Starting secure server (HTTPS/WSS) on port 2052...");
@@ -104,10 +103,4 @@ async fn main() {
                 .await;
         }
     }
-=======
-    println!("Server starting on port 2052...");
-    warp::serve(routes)
-        .run(([0, 0, 0, 0], 2052))
-        .await;
->>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
 }
