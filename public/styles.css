@@ -36,6 +36,10 @@ body {
 
 .message {
     animation: slideIn 0.2s ease-out forwards;
+    word-wrap: break-word;
+    white-space: pre-wrap;
+    max-width: 85%;
+    margin: 0.25rem 0;
 }
 
 /* Room list item styles */
@@ -234,11 +238,12 @@ textarea.form-input {
 
 /* Message styles */
 .message-bubble {
+    max-width: 100%;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
     background-color: #111111;
     border: 1px solid #262626;
-    border-radius: 12px;
-    padding: 8px 12px;
-    max-width: 80%;
 }
 
 .message-bubble.outgoing {
@@ -252,6 +257,94 @@ textarea.form-input {
     height: 100vh;
     width: 100vw;
     overflow: hidden;
+}
+
+/* Chat container styles */
+.chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    max-height: 100vh;
+    overflow: hidden;
+}
+
+.messages-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1rem;
+    scroll-behavior: smooth;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.input-container {
+    display: flex;
+    gap: 0.5rem;
+    padding: 1rem;
+    background-color: #000000;
+    border-top: 1px solid #262626;
+    position: sticky;
+    bottom: 0;
+}
+
+#messageInput {
+    flex: 1;
+    min-height: 40px;
+    max-height: 120px;
+    padding: 0.75rem 1rem;
+    resize: none;
+    overflow-y: auto;
+    line-height: 1.5;
+    background-color: #111111;
+    border: 1px solid #262626;
+    border-radius: 0.5rem;
+}
+
+.btn-send {
+    padding: 0.75rem;
+    background-color: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.2s ease;
+}
+
+.btn-send:hover {
+    background-color: #1d4ed8;
+}
+
+/* Media queries for responsiveness */
+@media (max-width: 768px) {
+    .message {
+        max-width: 95%;
+    }
+    
+    .input-container {
+        padding: 0.75rem;
+    }
+    
+    #messageInput {
+        padding: 0.5rem 0.75rem;
+    }
+    
+    .btn-send {
+        padding: 0.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .messages-container {
+        padding: 0.75rem;
+    }
+    
+    .message-bubble {
+        padding: 0.5rem 0.75rem;
+    }
 }
 
 /* Messages Container */
@@ -299,24 +392,6 @@ textarea.form-input {
 #membersList {
     overflow-y: auto;
     flex: 1;
-}
-
-/* Message Input */
-#messageInput {
-    min-height: 40px;
-    max-height: 120px;
-    resize: none;
-}
-
-/* Fix flex layout */
-.flex-col {
-    display: flex;
-    flex-direction: column;
-}
-
-.flex-1 {
-    flex: 1;
-    min-height: 0;
 }
 
 /* System Messages */
@@ -399,4 +474,15 @@ textarea.form-input {
 
 .room-highlight {
     animation: roomHighlight 1s ease-out forwards;
+}
+
+/* Fix flex layout */
+.flex-col {
+    display: flex;
+    flex-direction: column;
+}
+
+.flex-1 {
+    flex: 1;
+    min-height: 0;
 }

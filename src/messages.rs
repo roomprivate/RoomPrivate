@@ -50,11 +50,7 @@ pub enum ServerMessage {
     #[serde(rename = "chat_message")]
     ChatMessage {
         sender: String,
-<<<<<<< HEAD
         content: String,
-=======
-        content: String, // encrypted content
->>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
     },
     #[serde(rename = "member_list")]
     MemberList {
