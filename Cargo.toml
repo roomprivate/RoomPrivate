@@ -19,7 +19,7 @@ log = "0.4"
 env_logger = "0.11"
 thiserror = "2.0"
 async-trait = "0.1"
-rustls = "0.22"
+rustls = "0.23"
 rustls-pemfile = "2.2"
 
 [lints]
