@@ -80,9 +80,11 @@ export class ChatArea {
         roomName.textContent = name;
         roomDescription.textContent = description;
 
+        // Get the join key from the room object
         const joinKey = window.room?.currentRoom?.join_key || '';
         roomId.textContent = joinKey;
 
+        // Copy functionality
         const copyHandler = async () => {
             try {
                 await navigator.clipboard.writeText(joinKey);
@@ -97,7 +99,9 @@ export class ChatArea {
             }
         };
 
+        // Remove old listener if exists
         copyRoomId.removeEventListener('click', copyHandler);
+        // Add new listener
         copyRoomId.addEventListener('click', copyHandler);
     }
 
