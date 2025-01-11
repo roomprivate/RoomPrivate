@@ -1,40 +1,32 @@
-### Version Explain
+### Versions
 
-**rpv** = RoomPrivate Version  
-Version in that context means "the main structure version."
+**RPV** = RoomPrivate Version
 
-We have three main structure versions:  
-- **csl** = ChatSystemLegacy  
-- **rpv1** = RoomPrivate v1  
-- **rpv2** = RoomPrivate v2  
+There are three main versions:
 
-The **csl** is the room system used in RoomPrivate.
-The **rpv1** is the legacy version (TypeScript backend).  
-The **rpv2** is the actual version, with a Rust backend and more stability.  
+- **CSL** = ChatSystemLegacy  
+- **RPV1** = RoomPrivate v1  
+- **RPV2** = RoomPrivate v2  
 
-The main version refers to the base code used, which includes the language and structure.  
+#### Version Breakdown:
 
-We use the structure `MAINSTRUCTUREVERSION.Major.Minor.Patch(ID)`  
+- **CSL**: c0dE's project that RoomPrivate's room system was based on.  
+- **RPV1**: The current project, which is a remake of CSL, built with a TypeScript-based backend.  
+- **RPV2**: The current version, featuring a full Rust backend for improved stability and performance.
 
-- **MAJOR**: Big update, like a new API and etc.  
-- **MINOR**: Minor update, like adding new features or UI/UX updates.  
-- **Patch**: Security update or bug fix.  
+We follow [Semantic Versioning 2.0.0](https://semver.org/), where each version number is structured as **MAJOR.MINOR.PATCH**:
 
-**(ID)**: The identifier of the type of the version:  
-- **a** = Alpha  
-- **b** = Beta  
-- **ex** = Experimental  
-- **r** = Released, stable  
+- **MAJOR** version changes introduce breaking changes.
+- **MINOR** version changes add new features that are backwards compatible.
+- **PATCH** version changes include fixes and minor improvements.
 
 ---
 
 ### Version History
 
-We have these versions:
-
-#### RoomPrivate Versions
-- **rpv1-0.0.0a**: The first test of the RoomPrivate, alpha.  
-- **rpv1-0.0.1a**: This version introduced a lot of things and fixes.  
-- **rpv1-0.5.0a**: Introduced the KCT (Klee Socket), a socket in Rust to optimize the relation between client and server (the previous version used Socket.IO) and a hybrid backend with TypeScript and Rust.  
-- **rpv1-0.5.1a**: Introduced the first rework in the web client, removing the old RoomPrivate Client and introducing the Medusa Client.  
-- **rpv2-2.0.1b**: The first beta introduced the new backend (100% in Rust) and the new web client, Nietzsche Client.  
+- **CSL**: c0dE's project that served as the base for RoomPrivate's room system. It was eventually remade into RPV1. [Showcase](https://youtube.com/shorts/yturQUrpWg0)
+- **rpv1-0.0.0-alpha**: The first alpha test version of RoomPrivate, marking the transition from CSL to the new system. [Showcase](https://youtu.be/uMI_bCFlTbc)
+- **rpv1-0.0.1-alpha**: Introduced bug fixes and small feature additions. [Showcase](https://youtu.be/rgCnYbPmkZM)
+- **rpv1-0.5.0-alpha**: Major update introducing **KCT** (Klee Socket), a Rust-based socket that replaced Socket.IO, and a backend mix of TypeScript and Rust. [Showcase](https://youtu.be/8_lfL7AwnIE)
+- **rpv1-0.5.1-alpha**: The first redesign of the web client, replacing the old RoomPrivate Client with the Medusa Client.
+- **rpv2-2.0.1-beta**: The first beta of RPV2, featuring a full Rust backend and the Nietzsche Client for the web.
