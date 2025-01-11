@@ -15,10 +15,6 @@ WORKDIR /usr/local/bin
 # Copy the built binary from builder
 COPY --from=builder /usr/src/app/target/release/room_private .
 
-# Create SSL directory and copy certificates
-RUN mkdir -p /etc/ssl/room
-COPY ssl/room/* /etc/ssl/room/
-
 # Copy the public directory
 COPY --from=builder /usr/src/app/public ./public
 
