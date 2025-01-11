@@ -25,8 +25,8 @@ We follow [Semantic Versioning 2.0.0](https://semver.org/), where each version n
 ### Version History
 
 - **CSL**: c0dE's project that served as the base for RoomPrivate's room system. It was eventually remade into RPV1. [Showcase](https://youtube.com/shorts/yturQUrpWg0)
-- **rpv1-0.0.0-alpha**: The first alpha test version of RoomPrivate, marking the transition from CSL to the new system. [Showcase](https://youtu.be/uMI_bCFlTbc)
-- **rpv1-0.0.1-alpha**: Introduced bug fixes and small feature additions. [Showcase](https://youtu.be/rgCnYbPmkZM)
-- **rpv1-0.5.0-alpha**: Major update introducing **KCT** (Klee Socket), a Rust-based socket that replaced Socket.IO, and a backend mix of TypeScript and Rust. [Showcase](https://youtu.be/8_lfL7AwnIE)
-- **rpv1-0.5.1-alpha**: The first redesign of the web client, replacing the old RoomPrivate Client with the Medusa Client.
+- **rpv1-1.0.0-alpha**: The first alpha test version of RoomPrivate, marking the transition from CSL to the new system. [Showcase](https://youtu.be/uMI_bCFlTbc)
+- **rpv1-1.0.1-alpha**: Introduced bug fixes and small feature additions. [Showcase](https://youtu.be/rgCnYbPmkZM)
+- **rpv1-1.5.0-alpha**: Major update introducing **KCT** (Klee Socket), a Rust-based socket that replaced Socket.IO, and a backend mix of TypeScript and Rust. [Showcase](https://youtu.be/8_lfL7AwnIE)
+- **rpv1-1.6.1-alpha**: The first redesign of the web client, replacing the old RoomPrivate Client with the Medusa Client.
 - **rpv2-2.0.1-beta**: The first beta of RPV2, featuring a full Rust backend and the Nietzsche Client for the web.
