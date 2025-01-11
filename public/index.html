@@ -15,6 +15,8 @@
     <meta property="og:url" content="https://room.juliaklee.wtf">
     <meta name="twitter:card" content="summary_large_image">
     <link rel="stylesheet" href="styles/main.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked@5.1.1/lib/marked.umd.min.js"></script>
+    <script type="module" src="js/main.js"></script>
 </head>
 <body>
     <div class="app-container">
@@ -77,6 +79,10 @@
                 </div>
                 <div id="messages" class="messages-container"></div>
                 <div class="input-container">
+                    <input type="file" id="fileInput" style="display: none">
+                    <button id="uploadBtn" class="btn-icon">
+                        <i class="fas fa-paperclip"></i>
+                    </button>
                     <input type="text" id="messageInput" placeholder="Type your message...">
                     <button class="btn-send">
                         <i class="fas fa-paper-plane"></i>
@@ -105,6 +111,5 @@
         </div>
     </div>
 
-    <script type="module" src="js/main.js"></script>
 </body>
 </html>

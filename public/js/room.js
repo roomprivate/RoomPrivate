@@ -17,6 +17,8 @@ class EventEmitter {
     }
 }
 
+import markdownProcessor from './markdown.js';
+
 class Room extends EventEmitter {
     constructor() {
         super();
@@ -34,7 +36,7 @@ class Room extends EventEmitter {
         this.ws.onmessage = async (event) => {
             try {
                 const message = JSON.parse(event.data);
-                console.log('Received message:', message);
+                console.log('Received WebSocket message:', message);
                 
                 switch(message.type) {
                     case 'room_created':
@@ -60,7 +62,63 @@ class Room extends EventEmitter {
                         break;
                         
                     case 'chat_message':
-                        this.emit('message', message.content, 'other', message.sender);
+                        if (typeof message.content === 'string' && message.content.includes('[Video:')) {
+                            // Handle video message
+                            const match = message.content.match(/\[Video: (.*?)\] \((.*?)\)/);
+                            if (match) {
+                                const [_, filename, size] = match;
+                                const preview = `
+                                    <div class="file-preview">
+                                        <video controls preload="none">
+                                            <source src="/files/${filename}" type="video/mp4">
+                                            Your browser does not support the video tag.
+                                        </video>
+                                        <div class="file-info">
+                                            <span class="file-name">${filename}</span>
+                                            <span class="file-size">${size}</span>
+                                        </div>
+                                    </div>
+                                `;
+                                this.emit('message', preview, 'other', message.sender);
+                            }
+                        } else if (message.content && message.content.type === 'file') {
+                            // Create file preview for non-video files
+                            const filePreview = this.createFilePreview(message.content);
+                            this.emit('message', filePreview, 'other', message.sender);
+                        } else {
+                            // Process regular chat messages
+                            const processedContent = markdownProcessor.process(message.content);
+                            this.emit('message', processedContent, 'other', message.sender);
+                        }
+                        break;
+
+                    case 'file_message':
+                        const receivedFilePreview = this.createFilePreview(message);
+                        this.emit('message', receivedFilePreview, 'other', message.sender);
+                        break;
+
+                    case 'file_upload_success':
+                        this.emit('message', `✅ File "${message.filename}" uploaded successfully`, 'system');
+                        break;
+
+                    case 'file_upload_error':
+                        this.emit('message', `❌ Failed to upload file: ${message.error}`, 'system');
+                        break;
+
+                    case 'file_uploaded':
+                        console.log('File uploaded successfully:', message.metadata);
+                        const fileInfo = `✅ Uploaded: ${message.metadata.name} (${this.formatFileSize(message.metadata.size)})`;
+                        this.emit('message', fileInfo, 'system');
+                        break;
+
+                    case 'file_content':
+                        console.log('Received file content:', {
+                            name: message.metadata.name,
+                            type: message.metadata.mime_type,
+                            size: message.metadata.size
+                        });
+                        const downloadedFilePreview = this.createFilePreview(message);
+                        this.emit('message', downloadedFilePreview, 'other', message.sender);
                         break;
 
                     case 'member_list':
@@ -68,7 +126,22 @@ class Room extends EventEmitter {
                         break;
                         
                     case 'error':
-                        alert(message.message);
+                        console.error('Server error:', message.message);
+                        this.emit('message', `❌ Error: ${message.message}`, 'system');
+                        break;
+                    case 'file_upload':
+                        const fileData = message.content;
+                        const blob = new Blob([fileData], {type: message.filetype});
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = message.filename;
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        break;
+                    case 'file_download':
+                        const fileId = message.file_id;
+                        this.emit('fileDownload', fileId);
                         break;
                 }
             } catch (error) {
@@ -118,20 +191,117 @@ class Room extends EventEmitter {
         }));
     }
 
-    sendMessage(text) {
-        if (!text || !this.ws || !this.currentRoom) return;
-        
+    async uploadFile(file) {
+        // Check file size (100MB limit)
+        const MAX_SIZE = 100 * 1024 * 1024; // 100MB
+        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+
+        if (file.size > MAX_SIZE) {
+            this.emit('message', '❌ File too large (max 100MB)', 'system');
+            return;
+        }
+
         try {
+            // Always use chunked upload for all files
+            await this.uploadFileInChunks(file);
+
+            if (file.type.startsWith('video/')) {
+                // Send a video link message
+                this.ws.send(JSON.stringify({
+                    type: 'chat_message',
+                    content: `[Video: ${file.name}] (${this.formatFileSize(file.size)})`
+                }));
+            } else {
+                // For non-video files, send preview message
+                const base64Content = await this.readFileAsBase64(file);
+                this.ws.send(JSON.stringify({
+                    type: 'chat_message',
+                    content: {
+                        type: 'file',
+                        filename: file.name,
+                        filetype: file.type,
+                        filesize: file.size,
+                        content: base64Content
+                    }
+                }));
+            }
+        } catch (error) {
+            console.error('Error uploading file:', error);
+            this.emit('message', '❌ Failed to upload file', 'system');
+        }
+    }
+
+    async uploadFileInChunks(file) {
+        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+        const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+        
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * CHUNK_SIZE;
+            const end = Math.min(start + CHUNK_SIZE, file.size);
+            const chunk = file.slice(start, end);
+            
+            const base64Chunk = await this.readFileAsBase64(chunk);
+            
+            // Send chunk
+            this.ws.send(JSON.stringify({
+                type: 'upload_chunk',
+                name: file.name,
+                mime_type: file.type,
+                chunk_index: i,
+                total_chunks: totalChunks,
+                content: base64Chunk
+            }));
+
+            // Show upload progress
+            const progress = Math.round((i + 1) * 100 / totalChunks);
+            this.emit('message', `📤 Uploading ${file.name}: ${progress}%`, 'system');
+
+            // Small delay between chunks
+            await new Promise(resolve => setTimeout(resolve, 50));
+        }
+    }
+
+    readFileAsBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const base64Content = reader.result.split(',')[1];
+                resolve(base64Content);
+            };
+            reader.onerror = () => reject(new Error('Error reading file'));
+            reader.readAsDataURL(file);
+        });
+    }
+
+    sendMessage(content) {
+        if (!content || !this.ws || !this.currentRoom) return;
+        
+        if (this.ws.readyState === WebSocket.OPEN) {
             this.ws.send(JSON.stringify({
                 type: 'chat_message',
-                content: text
+                content: content
             }));
-            
-            this.emit('message', text, 'self');
-        } catch (error) {
-            console.error('Failed to send message:', error);
-            alert('Failed to send message: ' + error.message);
+            const processedContent = markdownProcessor.process(content);
+            this.emit('message', processedContent, 'self');
         }
+    }
+
+    requestFileDownload(fileId) {
+        if (!this.ws || !this.currentRoom) return;
+
+        if (this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({
+                type: 'file_download',
+                file_id: fileId
+            }));
+        }
+    }
+
+    formatFileSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+        else if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+        else return (bytes / 1073741824).toFixed(1) + ' GB';
     }
 
     leaveRoom() {
@@ -142,6 +312,49 @@ class Room extends EventEmitter {
         this.currentUserName = '';
         this.emit('roomLeft');
         this.emit('left');
+    }
+
+    createFilePreview(message) {
+        const { filename, filetype, filesize, file_id } = message;
+        let preview = '';
+
+        if (filetype.startsWith('image/')) {
+            preview = `
+                <div class="file-preview">
+                    <img src="data:${filetype};base64,${message.content}" alt="${filename}" />
+                    <div class="file-info">
+                        <span class="file-name">${filename}</span>
+                        <span class="file-size">${this.formatFileSize(filesize)}</span>
+                    </div>
+                </div>
+            `;
+        } else if (filetype.startsWith('video/')) {
+            // For videos, use direct file URL instead of base64
+            preview = `
+                <div class="file-preview">
+                    <video controls preload="none" poster="/images/video-placeholder.png">
+                        <source src="/files/${file_id}" type="${filetype}">
+                        Your browser does not support the video tag.
+                    </video>
+                    <div class="file-info">
+                        <span class="file-name">${filename}</span>
+                        <span class="file-size">${this.formatFileSize(filesize)}</span>
+                    </div>
+                </div>
+            `;
+        } else {
+            preview = `
+                <div class="file-preview file-link" onclick="window.open('/files/${file_id}', '_blank')">
+                    <div class="file-icon">📎</div>
+                    <div class="file-info">
+                        <span class="file-name">${filename}</span>
+                        <span class="file-size">${this.formatFileSize(filesize)}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        return preview;
     }
 }
 

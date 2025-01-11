@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
+use futures_util::{SinkExt, StreamExt};
 use warp::ws::{Message, WebSocket};
 use uuid::Uuid;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
-use super::room::Room;
-use super::messages::{ClientMessage, ServerMessage};
-use super::crypto::RoomCrypto;
+use crate::room::Room;
+use crate::messages::{ClientMessage, ServerMessage};
+use crate::crypto::RoomCrypto;
+use crate::files::FileManager;
 
 type Rooms = Arc<RwLock<HashMap<String, Room>>>;
 type Connections = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Message>>>>;
@@ -16,14 +18,20 @@ type Connections = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Message>>>>;
 pub struct Server {
     rooms: Rooms,
     connections: Connections,
+    pub file_manager: Arc<FileManager>,
 }
 
 impl Server {
-    pub fn new() -> Self {
+    pub async fn new() -> Self {
         Server {
             rooms: Arc::new(RwLock::new(HashMap::new())),
             connections: Arc::new(RwLock::new(HashMap::new())),
+            file_manager: Arc::new(FileManager::new().await.expect("Failed to create file manager")),
         }
+    }
+
+    pub async fn get_file(&self, file_id: &str) -> Option<(crate::files::FileMetadata, Vec<u8>)> {
+        self.file_manager.get_file(file_id).await
     }
 
     pub async fn handle_connection(&self, ws: WebSocket) {
@@ -39,6 +47,7 @@ impl Server {
         let rooms = self.rooms.clone();
         let connections = self.connections.clone();
         let participant_id_clone = participant_id.clone();
+        let file_manager = self.file_manager.clone();
 
         tokio::spawn(async move {
             while let Some(result) = ws_rx.next().await {
@@ -51,11 +60,15 @@ impl Server {
                                     &participant_id_clone,
                                     &rooms,
                                     &connections,
+                                    &file_manager,
                                 ).await;
                             }
                         }
                     }
-                    Err(_) => break,
+                    Err(e) => {
+                        eprintln!("WebSocket error: {}", e);
+                        break;
+                    }
                 }
             }
 
@@ -63,8 +76,9 @@ impl Server {
         });
 
         tokio::spawn(async move {
-            while let Some(msg) = rx.recv().await {
-                if ws_tx.send(msg).await.is_err() {
+            while let Some(message) = rx.recv().await {
+                if let Err(e) = ws_tx.send(message).await {
+                    eprintln!("Failed to send WebSocket message: {}", e);
                     break;
                 }
             }
@@ -76,6 +90,7 @@ impl Server {
         participant_id: &str,
         rooms: &Rooms,
         connections: &Connections,
+        file_manager: &FileManager,
     ) {
         match message {
             ClientMessage::CreateRoom { name, description, password } => {
@@ -203,6 +218,63 @@ impl Server {
             ClientMessage::LeaveRoom => {
                 Self::handle_disconnect(participant_id, rooms, connections).await;
             },
+
+            ClientMessage::UploadFile { name, mime_type, content } => {
+                // Decode base64 content
+                if let Ok(file_data) = BASE64.decode(content) {
+                    match file_manager.upload_file(name, mime_type, file_data).await {
+                        Ok(metadata) => {
+                            // Get current room and check if participant is in it
+                            let rooms = rooms.read().await;
+                            let mut current_room = None;
+                            for room in rooms.values() {
+                                let participants = room.get_participants().await;
+                                if participants.iter().any(|(id, _)| id == participant_id) {
+                                    current_room = Some(room);
+                                    break;
+                                }
+                            }
+                            
+                            if let Some(room) = current_room {
+                                // Create a chat message with the file link
+                                let file_message = ServerMessage::ChatMessage {
+                                    content: format!("[File: {}](/files/{})", metadata.name, metadata.id),
+                                    sender: participant_id.to_string(),
+                                };
+                                
+                                // Broadcast to all room members
+                                Self::broadcast_to_room(room, file_message, connections).await;
+                            }
+
+                            // Send metadata back to uploader
+                            let upload_message = ServerMessage::FileUploaded { metadata };
+                            Self::send_message_to_participant(participant_id, upload_message, connections).await;
+                        }
+                        Err(e) => {
+                            let message = ServerMessage::Error { message: e };
+                            Self::send_message_to_participant(participant_id, message, connections).await;
+                        }
+                    }
+                } else {
+                    let message = ServerMessage::Error { 
+                        message: "Invalid file data".to_string() 
+                    };
+                    Self::send_message_to_participant(participant_id, message, connections).await;
+                }
+            }
+
+            ClientMessage::GetFile { file_id } => {
+                if let Some((metadata, content)) = file_manager.get_file(&file_id).await {
+                    let content = BASE64.encode(content);
+                    let response = ServerMessage::FileContent { metadata, content };
+                    Self::send_message_to_participant(participant_id, response, connections).await;
+                } else {
+                    let error = ServerMessage::Error { 
+                        message: "File not found or expired".to_string() 
+                    };
+                    Self::send_message_to_participant(participant_id, error, connections).await;
+                }
+            }
         }
     }
 
