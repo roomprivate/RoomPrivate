@@ -2,14 +2,18 @@ import room from './room.js';
 
 room.on('roomCreated', (roomInfo) => {
     updateRoomInfo(roomInfo);
+    showChatContainer();
 });
 
-room.on('roomJoined', (roomInfo) => {
+room.on('roomJoined', (roomInfo, participants) => {
     updateRoomInfo(roomInfo);
+    showChatContainer();
+    updateMembers(participants);
 });
 
 room.on('roomLeft', () => {
     updateRoomInfo(null);
+    hideChatContainer();
 });
 
 function updateRoomInfo(roomInfo) {
@@ -27,6 +31,33 @@ function updateRoomInfo(roomInfo) {
         roomId.textContent = '';
     }
 }
+
+function showChatContainer() {
+    const chatContainer = document.querySelector('.chat-container');
+    const chatHeader = document.querySelector('.chat-header');
+    const inputContainer = document.querySelector('.input-container');
+    const messagesContainer = document.getElementById('messages');
+    
+    if (chatContainer) chatContainer.style.display = 'flex';
+    if (chatHeader) chatHeader.style.display = 'flex';
+    if (inputContainer) inputContainer.style.display = 'flex';
+    if (messagesContainer) messagesContainer.style.display = 'flex';
+}
+
+function hideChatContainer() {
+    const chatContainer = document.querySelector('.chat-container');
+    if (chatContainer) chatContainer.style.display = 'none';
+}
+
+// Initialize chat container visibility
+document.addEventListener('DOMContentLoaded', () => {
+    const room = window.room?.currentRoom;
+    if (room) {
+        showChatContainer();
+    } else {
+        hideChatContainer();
+    }
+});
 
 const createRoomBtn = document.getElementById('createRoomBtn');
 const joinRoomBtn = document.getElementById('joinRoomBtn');
