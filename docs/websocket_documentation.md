@@ -92,6 +92,101 @@ enum ServerMessage {
    - Server broadcasts encrypted message to all room participants
    - Receiving clients decrypt messages using room encryption key
 
+## File Operations
+
+### Upload File
+Client sends a file upload request:
+```json
+{
+    "type": "UploadFile",
+    "name": "example.jpg",
+    "mime_type": "image/jpeg",
+    "content": "base64_encoded_file_content"
+}
+```
+Server responds with success:
+```json
+{
+    "type": "FileUploaded",
+    "metadata": {
+        "id": "unique_file_id",
+        "name": "example.jpg",
+        "mime_type": "image/jpeg",
+        "size": 12345
+    }
+}
+```
+Or error:
+```json
+{
+    "type": "Error",
+    "message": "Failed to upload file"
+}
+```
+### Download File
+Client requests a file:
+```json
+{
+    "type": "GetFile",
+    "file_id": "unique_file_id"
+}
+```
+Server responds with file content:
+```json
+{
+    "type": "FileContent",
+    "metadata": {
+        "id": "unique_file_id",
+        "name": "example.jpg",
+        "mime_type": "image/jpeg",
+        "size": 12345
+    },
+    "content": "base64_encoded_file_content"
+}
+```
+Or error if file not found:
+```json
+{
+    "type": "Error",
+    "message": "File not found or expired"
+}
+```
+### File Message Format
+When a file is shared in chat, it appears as a special message:
+```json
+{
+    "type": "ChatMessage",
+    "sender": "username",
+    "content": "[File: filename](/files/file_id)"
+}
+```
+### Implementation Notes
+1. All file content is base64 encoded
+2. Files are automatically shared with all room participants
+3. Files have a unique ID for retrieval
+4. File metadata includes: name, mime type, and size
+5. Files may expire after a certain period
+
+## Security Considerations
+
+1. **File Validation**
+   - Validate file size before upload
+   - Check allowed mime types
+   - Scan for malware (recommended)
+   - Limit upload frequency
+
+2. **Storage**
+   - Implement secure file storage
+   - Use proper file permissions
+   - Clean up expired files
+   - Consider storage quotas
+
+3. **Access Control**
+   - Only room participants can access files
+   - Validate file ownership
+   - Implement rate limiting
+   - Use secure file URLs
+
 ## Client Implementation Guide
 
 ### Required Dependencies
@@ -168,37 +263,3 @@ let chat_msg = ClientMessage::ChatMessage {
 let json = serde_json::to_string(&chat_msg)?;
 ws_stream.send(Message::Text(json)).await?;
 ```
-
-## Security Considerations
-
-1. **Encryption**
-   - All chat messages are end-to-end encrypted
-   - Each room has a unique encryption key
-   - Clients must handle encryption/decryption
-   - Never send unencrypted messages
-
-2. **Authentication**
-   - Room passwords are optional but recommended
-   - Join keys are required and unique per room
-   - Server validates all join attempts
-
-3. **Connection Security**
-   - Use WSS (WebSocket Secure) in production
-   - Implement proper error handling
-   - Handle disconnections gracefully
-
-## Error Handling
-- Server sends Error messages for invalid operations
-- Clients should implement reconnection logic
-- Handle timeout and network errors
-- Validate all incoming/outgoing messages
-
-## Best Practices
-1. Implement heartbeat mechanism
-2. Handle reconnection automatically
-3. Buffer messages during disconnection
-4. Validate message format before sending
-5. Implement proper error handling
-6. Use secure WebSocket (WSS) in production
-7. Store encryption keys securely
-8. Clean up resources on disconnect
