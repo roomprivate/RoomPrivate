@@ -1,26 +1,19 @@
 import room from './room.js';
-import { SidebarManager } from './sidebarManager.js';
 
-// Initialize FontAwesome
-const fontAwesome = document.createElement('link');
-fontAwesome.rel = 'stylesheet';
-fontAwesome.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css';
-document.head.appendChild(fontAwesome);
-
-// Initialize sidebar manager
-const sidebarManager = new SidebarManager();
-
-// Room event handlers
 room.on('roomCreated', (roomInfo) => {
     updateRoomInfo(roomInfo);
+    showChatContainer();
 });
 
-room.on('roomJoined', (roomInfo) => {
+room.on('roomJoined', (roomInfo, participants) => {
     updateRoomInfo(roomInfo);
+    showChatContainer();
+    updateMembers(participants);
 });
 
 room.on('roomLeft', () => {
     updateRoomInfo(null);
+    hideChatContainer();
 });
 
 function updateRoomInfo(roomInfo) {
@@ -39,7 +32,33 @@ function updateRoomInfo(roomInfo) {
     }
 }
 
-// UI Elements
+function showChatContainer() {
+    const chatContainer = document.querySelector('.chat-container');
+    const chatHeader = document.querySelector('.chat-header');
+    const inputContainer = document.querySelector('.input-container');
+    const messagesContainer = document.getElementById('messages');
+    
+    if (chatContainer) chatContainer.style.display = 'flex';
+    if (chatHeader) chatHeader.style.display = 'flex';
+    if (inputContainer) inputContainer.style.display = 'flex';
+    if (messagesContainer) messagesContainer.style.display = 'flex';
+}
+
+function hideChatContainer() {
+    const chatContainer = document.querySelector('.chat-container');
+    if (chatContainer) chatContainer.style.display = 'none';
+}
+
+// Initialize chat container visibility
+document.addEventListener('DOMContentLoaded', () => {
+    const room = window.room?.currentRoom;
+    if (room) {
+        showChatContainer();
+    } else {
+        hideChatContainer();
+    }
+});
+
 const createRoomBtn = document.getElementById('createRoomBtn');
 const joinRoomBtn = document.getElementById('joinRoomBtn');
 const createRoomPanel = document.getElementById('createRoom');
@@ -51,7 +70,6 @@ const copyRoomIdBtn = document.getElementById('copyRoomId');
 const fileInput = document.getElementById('fileInput');
 const uploadBtn = document.getElementById('uploadBtn');
 
-// Copy Room ID functionality
 copyRoomIdBtn.addEventListener('click', async () => {
     const roomId = document.getElementById('roomId').textContent;
     if (!roomId) return;
@@ -69,7 +87,6 @@ copyRoomIdBtn.addEventListener('click', async () => {
     }
 });
 
-// Event Listeners for Room Controls
 createRoomBtn.addEventListener('click', () => {
     createRoomPanel.classList.toggle('hidden');
     joinRoomPanel.classList.add('hidden');
@@ -112,7 +129,6 @@ joinRoomPanel.querySelector('button').addEventListener('click', () => {
 
 leaveRoomBtn.addEventListener('click', () => room.leaveRoom());
 
-// File upload handling
 uploadBtn.addEventListener('click', () => {
     fileInput.click();
 });
@@ -128,21 +144,18 @@ fileInput.addEventListener('change', async (e) => {
             size: file.size
         });
 
-        // Check file size (limit to 100MB)
-        const maxSize = 100 * 1024 * 1024; // 100MB in bytes
+        const maxSize = 100 * 1024 * 1024;
         if (file.size > maxSize) {
             console.warn('File too large:', {
                 size: file.size,
                 maxSize: maxSize
             });
-            alert('File size must be less than 100MB');
+            alert('File size must be less than 100MB'); //need to change that to a better "error/information" display
             return;
         }
 
-        // Show upload progress in chat
         const progressMessage = appendMessage(` Uploading ${file.name}...`, 'system');
         
-        // Create preview if it's an image or video
         if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
             console.log('Creating preview for:', file.type);
             const previewUrl = URL.createObjectURL(file);
@@ -153,12 +166,10 @@ fileInput.addEventListener('change', async (e) => {
         await room.uploadFile(file);
         console.log('File upload completed');
         
-        // Remove progress message
         if (progressMessage) {
             progressMessage.remove();
         }
         
-        // Clear the input
         fileInput.value = '';
     } catch (error) {
         console.error('Error in file upload:', error);
@@ -204,7 +215,6 @@ function formatFileSize(bytes) {
     else return (bytes / 1073741824).toFixed(1) + ' GB';
 }
 
-// Message handling
 function appendMessage(text, type, sender = '') {
     const messagesDiv = document.getElementById('messages');
     const messageDiv = document.createElement('div');
@@ -215,7 +225,6 @@ function appendMessage(text, type, sender = '') {
     if (type === 'system') {
         messageDiv.innerHTML = `<div class="message-bubble system">${text}</div>`;
     } else {
-        // Check if the message contains a file preview
         const isFileMessage = text.includes('file-message') || text.includes('file-preview');
         const messageClass = isFileMessage ? 'file-message' : '';
         
@@ -229,7 +238,6 @@ function appendMessage(text, type, sender = '') {
             </div>
         `;
 
-        // Add click handler for file downloads
         if (isFileMessage && type === 'other') {
             const fileElement = messageDiv.querySelector('.file-message');
             if (fileElement) {
@@ -245,18 +253,15 @@ function appendMessage(text, type, sender = '') {
     
     messagesDiv.appendChild(messageDiv);
     
-    // Keep only the last 100 messages
     while (messagesDiv.children.length > 100) {
         messagesDiv.removeChild(messagesDiv.firstChild);
     }
     
-    // Scroll to bottom
     messageDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
     
     return messageDiv;
 }
 
-// Message input handling
 messageInput.addEventListener('input', function() {
     this.style.height = 'auto';
     this.style.height = Math.min(this.scrollHeight, 120) + 'px';
@@ -280,7 +285,6 @@ sendMessageBtn.addEventListener('click', () => {
     }
 });
 
-// Room Event Handlers
 room.on('roomCreated', (roomInfo) => {
     document.getElementById('roomName').textContent = roomInfo.name;
     document.getElementById('roomDescription').textContent = roomInfo.description || '';
@@ -310,7 +314,6 @@ room.on('left', () => {
     document.getElementById('members').innerHTML = '';
 });
 
-// Helper Functions
 function updateMembers(members) {
     const membersContainer = document.getElementById('members');
     const memberCount = document.querySelector('.member-count');
@@ -325,7 +328,6 @@ function updateMembers(members) {
     memberCount.textContent = members.length;
 }
 
-// Add scroll to bottom button
 const scrollButton = document.createElement('button');
 scrollButton.className = 'scroll-bottom-btn hidden';
 scrollButton.innerHTML = '<i class="fas fa-chevron-down"></i>';
@@ -339,13 +341,11 @@ scrollButton.addEventListener('click', () => {
     });
 });
 
-// Show/hide scroll button based on scroll position
 document.getElementById('messages').addEventListener('scroll', function() {
     const isNearBottom = this.scrollHeight - this.scrollTop <= this.clientHeight + 100;
     scrollButton.classList.toggle('hidden', isNearBottom);
 });
 
-// Info popout functionality
 async function loadInfoPopout() {
     try {
         const response = await fetch('/info.json');
@@ -376,10 +376,8 @@ async function loadInfoPopout() {
     }
 }
 
-// Load info when DOM is ready
 document.addEventListener('DOMContentLoaded', loadInfoPopout);
 
-// Info popout close functionality
 document.querySelector('.info-popout .close-btn').addEventListener('click', () => {
     document.querySelector('.info-popout-overlay').style.display = 'none';
 });

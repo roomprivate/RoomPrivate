@@ -42,7 +42,7 @@ class Room extends EventEmitter {
                     case 'room_created':
                         this.currentRoom = message.room_info;
                         this.emit('roomCreated', this.currentRoom);
-                        alert(`Room created! Join key: ${this.currentRoom.join_key}`);
+                        alert(`Room created! Join key: ${this.currentRoom.join_key}`); //need to change that to a better "error/information" display
                         break;
                         
                     case 'room_joined':
@@ -63,7 +63,6 @@ class Room extends EventEmitter {
                         
                     case 'chat_message':
                         if (typeof message.content === 'string' && message.content.includes('[Video:')) {
-                            // Handle video message
                             const match = message.content.match(/\[Video: (.*?)\] \((.*?)\)/);
                             if (match) {
                                 const [_, filename, size] = match;
@@ -82,11 +81,9 @@ class Room extends EventEmitter {
                                 this.emit('message', preview, 'other', message.sender);
                             }
                         } else if (message.content && message.content.type === 'file') {
-                            // Create file preview for non-video files
                             const filePreview = this.createFilePreview(message.content);
                             this.emit('message', filePreview, 'other', message.sender);
                         } else {
-                            // Process regular chat messages
                             const processedContent = markdownProcessor.process(message.content);
                             this.emit('message', processedContent, 'other', message.sender);
                         }
@@ -161,12 +158,17 @@ class Room extends EventEmitter {
 
     createRoom(name, description, password, userName) {
         if (!name || !userName) {
-            alert('Room name and your name are required');
+            alert('Room name and your name are required'); //need to change that to a better "error/information" display
             return;
         }
-
+    
+        if (this.ws.readyState !== WebSocket.OPEN) {
+            alert('Connection lost. Please try again.'); //need to change that to a better "error/information" display
+            return;
+        }
+    
         this.currentUserName = userName;
-        
+    
         this.ws.send(JSON.stringify({
             type: 'create_room',
             name,
@@ -178,7 +180,7 @@ class Room extends EventEmitter {
 
     joinRoom(joinKey, password, name) {
         if (!joinKey || !name) {
-            alert('Join key and name are required');
+            alert('Join key and name are required'); //need to change that to a better "error/information" display
             return;
         }
 
@@ -193,9 +195,8 @@ class Room extends EventEmitter {
     }
 
     async uploadFile(file) {
-        // Check file size (100MB limit)
-        const MAX_SIZE = 100 * 1024 * 1024; // 100MB
-        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+        const MAX_SIZE = 100 * 1024 * 1024;
+        const CHUNK_SIZE = 10 * 1024 * 1024;
 
         if (file.size > MAX_SIZE) {
             this.emit('message', '❌ File too large (max 100MB)', 'system');
@@ -203,17 +204,14 @@ class Room extends EventEmitter {
         }
 
         try {
-            // Always use chunked upload for all files
             await this.uploadFileInChunks(file);
 
             if (file.type.startsWith('video/')) {
-                // Send a video link message
                 this.ws.send(JSON.stringify({
                     type: 'chat_message',
                     content: `[Video: ${file.name}] (${this.formatFileSize(file.size)})`
                 }));
             } else {
-                // For non-video files, send preview message
                 const base64Content = await this.readFileAsBase64(file);
                 this.ws.send(JSON.stringify({
                     type: 'chat_message',
@@ -233,7 +231,7 @@ class Room extends EventEmitter {
     }
 
     async uploadFileInChunks(file) {
-        const CHUNK_SIZE = 10 * 1024 * 1024; // 10MB chunks
+        const CHUNK_SIZE = 10 * 1024 * 1024;
         const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
         
         for (let i = 0; i < totalChunks; i++) {
@@ -243,7 +241,6 @@ class Room extends EventEmitter {
             
             const base64Chunk = await this.readFileAsBase64(chunk);
             
-            // Send chunk
             this.ws.send(JSON.stringify({
                 type: 'upload_chunk',
                 name: file.name,
@@ -253,11 +250,9 @@ class Room extends EventEmitter {
                 content: base64Chunk
             }));
 
-            // Show upload progress
             const progress = Math.round((i + 1) * 100 / totalChunks);
             this.emit('message', `📤 Uploading ${file.name}: ${progress}%`, 'system');
 
-            // Small delay between chunks
             await new Promise(resolve => setTimeout(resolve, 50));
         }
     }
@@ -330,7 +325,6 @@ class Room extends EventEmitter {
                 </div>
             `;
         } else if (filetype.startsWith('video/')) {
-            // For videos, use direct file URL instead of base64
             preview = `
                 <div class="file-preview">
                     <video controls preload="none" poster="/images/video-placeholder.png">

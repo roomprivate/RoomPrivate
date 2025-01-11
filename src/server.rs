@@ -220,11 +220,9 @@ impl Server {
             },
 
             ClientMessage::UploadFile { name, mime_type, content } => {
-                // Decode base64 content
                 if let Ok(file_data) = BASE64.decode(content) {
                     match file_manager.upload_file(name, mime_type, file_data).await {
                         Ok(metadata) => {
-                            // Get current room and check if participant is in it
                             let rooms = rooms.read().await;
                             let mut current_room = None;
                             for room in rooms.values() {
@@ -237,18 +235,15 @@ impl Server {
                             
 
                             if let Some(room) = current_room {
-                                // Create a chat message with the file link
                                 let file_message = ServerMessage::ChatMessage {
                                     content: format!("[File: {}](/files/{})", metadata.name, metadata.id),
                                     sender: participant_id.to_string(),
                                 };
                                 
 
-                                // Broadcast to all room members
                                 Self::broadcast_to_room(room, file_message, connections).await;
                             }
 
-                            // Send metadata back to uploader
                             let upload_message = ServerMessage::FileUploaded { metadata };
                             Self::send_message_to_participant(participant_id, upload_message, connections).await;
                         }
