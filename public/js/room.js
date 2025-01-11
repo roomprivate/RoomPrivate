@@ -42,7 +42,7 @@ class Room extends EventEmitter {
                     case 'room_created':
                         this.currentRoom = message.room_info;
                         this.emit('roomCreated', this.currentRoom);
-                        alert(`Room created! Join key: ${this.currentRoom.join_key}`);
+                        alert(`Room created! Join key: ${this.currentRoom.join_key}`); //need to change that to a better "error/information" display
                         break;
                         
                     case 'room_joined':
@@ -158,12 +158,12 @@ class Room extends EventEmitter {
 
     createRoom(name, description, password, userName) {
         if (!name || !userName) {
-            alert('Room name and your name are required');
+            alert('Room name and your name are required'); //need to change that to a better "error/information" display
             return;
         }
     
         if (this.ws.readyState !== WebSocket.OPEN) {
-            alert('Connection lost. Please try again.');
+            alert('Connection lost. Please try again.'); //need to change that to a better "error/information" display
             return;
         }
     
@@ -180,7 +180,7 @@ class Room extends EventEmitter {
 
     joinRoom(joinKey, password, name) {
         if (!joinKey || !name) {
-            alert('Join key and name are required');
+            alert('Join key and name are required'); //need to change that to a better "error/information" display
             return;
         }
 
