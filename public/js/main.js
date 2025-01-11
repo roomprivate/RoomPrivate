@@ -150,7 +150,7 @@ fileInput.addEventListener('change', async (e) => {
                 size: file.size,
                 maxSize: maxSize
             });
-            alert('File size must be less than 100MB');
+            alert('File size must be less than 100MB'); //need to change that to a better "error/information" display
             return;
         }
 
