@@ -17,7 +17,7 @@ We follow [Semantic Versioning 2.0.0](https://semver.org/), where each version n
 - **1.0.1-alpha**: Introduced bug fixes and small feature additions. [Showcase](https://youtu.be/rgCnYbPmkZM)
 - **2.5.0-alpha**: Major update introducing **Klee Socket**, a Rust-based socket that replaced Socket.IO, and a backend mix of TypeScript and Rust. [Showcase](https://youtu.be/8_lfL7AwnIE)
 - **2.6.1-alpha**: Finished Klee Socket
-- **2.7.1-alpha**: The first redesign of the web client, replacing the old RoomPrivate Client with the Medusa Client.
-- **3.0.2-beta**: Major updating featuring a full Rust backend and the Nietzsche Client for the web.
-- **3.1.0-beta**: Added upload system for files and videos, with chunked upload for large files, and backend features for SHA256 of uploaded files. And some bug fixes.
-- **3.1.1-beta**: Bug fixes, added support for custom username when create a room, added a popout on the start. Fixed responsive for smartphones.
+- **2.7.1-alpha**: The first redesign of the web client, replacing the old RoomPrivate Client with the Medusa Client. [Showcase](https://youtu.be/q5uO7zCbiNk)
+- **3.0.2-beta**: Major updating featuring a full Rust backend and the Nietzsche Client for the web. [Showcase](https://youtu.be/5zqiD9TrosI)
+- **3.1.1-beta**: Added upload system for files and videos, with chunked upload for large files, and backend features for SHA256 of uploaded files. And some bug fixes.
+- **3.2.1-beta**: Bug fixes, added support for custom username when create a room, added a popout on the start. Fixed responsive for smartphones.
