@@ -103,4 +103,8 @@ async fn main() {
                 .await;
         }
     }
+    println!("Server starting on port 2052...");
+    warp::serve(routes)
+        .run(([0, 0, 0, 0], 2052))
+        .await;
 }
