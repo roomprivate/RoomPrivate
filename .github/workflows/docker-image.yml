@@ -1,7 +1,7 @@
 on:
   push:
     branches:
-      - Deploy
+      - deploy
 
 jobs:
   docker:
