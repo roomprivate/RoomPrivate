@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use super::files::FileMetadata;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
@@ -23,6 +24,16 @@ pub enum ClientMessage {
     },
     #[serde(rename = "get_members")]
     GetMembers,
+    #[serde(rename = "upload_file")]
+    UploadFile {
+        name: String,
+        mime_type: String,
+        content: String, // Base64 encoded file content
+    },
+    #[serde(rename = "get_file")]
+    GetFile {
+        file_id: String,
+    },
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -59,5 +70,14 @@ pub enum ServerMessage {
     #[serde(rename = "error")]
     Error {
         message: String,
+    },
+    #[serde(rename = "file_uploaded")]
+    FileUploaded {
+        metadata: super::files::FileMetadata,
+    },
+    #[serde(rename = "file_content")]
+    FileContent {
+        metadata: FileMetadata,
+        content: String, // Base64 encoded file content
     },
 }
