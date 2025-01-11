@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.75-slim-bullseye as builder
+FROM rust:1.84-slim-bullseye as builder
 
 WORKDIR /usr/src/app
 COPY . .
