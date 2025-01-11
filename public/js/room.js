@@ -140,6 +140,7 @@ class Room extends EventEmitter {
         }
         this.currentRoom = null;
         this.currentUserName = '';
+        this.emit('roomLeft');
         this.emit('left');
     }
 }

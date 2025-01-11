@@ -20,30 +20,35 @@
     <div class="app-container">
         <!-- Left Sidebar -->
         <div class="left-sidebar">
-            <div class="sidebar-header">
-                <h2>RoomPrivate</h2>
-            </div>
-            <div class="room-actions">
-                <button id="createRoomBtn" class="action-btn">
-                    <i class="fas fa-plus"></i> Create Room
-                </button>
-                <button id="joinRoomBtn" class="action-btn">
-                    <i class="fas fa-sign-in-alt"></i> Join Room
-                </button>
-            </div>
-            <div id="roomControls" class="room-controls">
-                <div id="createRoom" class="control-panel hidden">
-                    <input type="text" id="createRoomName" placeholder="Room Name" required>
-                    <input type="text" id="createRoomDesc" placeholder="Room Description">
-                    <input type="password" id="createRoomPassword" placeholder="Room Password (optional)">
-                    <button class="btn-primary">Create</button>
+            <button class="sidebar-toggle left-toggle">
+                <i class="fas fa-bars"></i>
+            </button>
+            <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <h2>RoomPrivate</h2>
                 </div>
+                <div class="room-actions">
+                    <button id="createRoomBtn" class="action-btn">
+                        <i class="fas fa-plus"></i> Create Room
+                    </button>
+                    <button id="joinRoomBtn" class="action-btn">
+                        <i class="fas fa-sign-in-alt"></i> Join Room
+                    </button>
+                </div>
+                <div id="roomControls" class="room-controls">
+                    <div id="createRoom" class="control-panel hidden">
+                        <input type="text" id="createRoomName" placeholder="Room Name" required>
+                        <input type="text" id="createRoomDesc" placeholder="Room Description">
+                        <input type="password" id="createRoomPassword" placeholder="Room Password (optional)">
+                        <button class="btn-primary">Create</button>
+                    </div>
 
-                <div id="joinRoom" class="control-panel hidden">
-                    <input type="text" id="joinKey" placeholder="Join Key" required>
-                    <input type="password" id="joinPassword" placeholder="Room Password (if required)">
-                    <input type="text" id="userName" placeholder="Your Name" required>
-                    <button class="btn-primary">Join</button>
+                    <div id="joinRoom" class="control-panel hidden">
+                        <input type="text" id="joinKey" placeholder="Join Key" required>
+                        <input type="password" id="joinPassword" placeholder="Room Password (if required)">
+                        <input type="text" id="userName" placeholder="Your Name" required>
+                        <button class="btn-primary">Join</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -52,6 +57,9 @@
         <div class="main-content">
             <div id="chatArea" class="chat-container">
                 <div class="chat-header">
+                    <button class="sidebar-toggle left-toggle mobile-only">
+                        <i class="fas fa-bars"></i>
+                    </button>
                     <div class="header-main">
                         <h2 id="roomName"></h2>
                         <div class="room-id-container">
@@ -63,6 +71,9 @@
                         </div>
                     </div>
                     <p id="roomDescription"></p>
+                    <button class="sidebar-toggle right-toggle mobile-only">
+                        <i class="fas fa-users"></i>
+                    </button>
                 </div>
                 <div id="messages" class="messages-container"></div>
                 <div class="input-container">
@@ -76,15 +87,20 @@
 
         <!-- Right Sidebar -->
         <div class="right-sidebar">
-            <div class="sidebar-header">
-                <h3>Members</h3>
-                <span class="member-count">0</span>
-            </div>
-            <div id="members" class="members-list"></div>
-            <div class="sidebar-footer">
-                <button id="leaveRoom" class="action-btn danger">
-                    <i class="fas fa-sign-out-alt"></i> Leave Room
-                </button>
+            <button class="sidebar-toggle right-toggle">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="sidebar-content">
+                <div class="sidebar-header">
+                    <h3>Members</h3>
+                    <span class="member-count">0</span>
+                </div>
+                <div id="members" class="members-list"></div>
+                <div class="sidebar-footer">
+                    <button id="leaveRoom" class="action-btn danger">
+                        <i class="fas fa-sign-out-alt"></i> Leave Room
+                    </button>
+                </div>
             </div>
         </div>
     </div>

@@ -8,29 +8,38 @@ export class ChatArea {
     init() {
         this.container.innerHTML = `
             <div class="chat-main">
-                <div class="room-info">
-                    <div class="room-header">
-                        <h2 id="roomName"></h2>
+                <div class="chat-header">
+                    <div class="header-left">
+                        <button class="sidebar-toggle left-toggle">
+                            <i class="fas fa-bars"></i>
+                        </button>
+                    </div>
+                    <div class="header-center">
+                        <div class="header-main">
+                            <h2 id="roomName"></h2>
+                            <div class="room-id-container">
+                                <span class="room-id-label">Join Key:</span>
+                                <span id="roomId" class="room-id"></span>
+                                <button id="copyRoomId" class="btn-icon" title="Copy Join Key">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
                         <p id="roomDescription"></p>
                     </div>
-                    <button class="btn-danger" id="leaveBtn">
-                        <i class="fas fa-sign-out-alt"></i>
-                    </button>
+                    <div class="header-right">
+                        <button class="sidebar-toggle right-toggle">
+                            <i class="fas fa-users"></i>
+                        </button>
+                    </div>
                 </div>
-                <div id="messages" class="messages-container"></div>
+                <div id="messages"></div>
                 <div class="input-container">
                     <input type="text" id="messageInput" placeholder="Type your message...">
                     <button class="btn-send">
                         <i class="fas fa-paper-plane"></i>
                     </button>
                 </div>
-            </div>
-            <div class="member-sidebar">
-                <div class="sidebar-header">
-                    <h3>Members</h3>
-                    <span class="member-count">0</span>
-                </div>
-                <div id="members" class="members-list"></div>
             </div>
         `;
 
@@ -39,7 +48,6 @@ export class ChatArea {
 
     bindEvents() {
         const sendBtn = this.container.querySelector('.btn-send');
-        const leaveBtn = this.container.querySelector('#leaveBtn');
         const messageInput = this.container.querySelector('#messageInput');
 
         sendBtn.addEventListener('click', () => {
@@ -59,15 +67,40 @@ export class ChatArea {
                 }
             }
         });
-
-        leaveBtn.addEventListener('click', () => {
-            this.callbacks.onLeaveRoom();
-        });
     }
 
     updateRoomInfo(name, description) {
-        this.container.querySelector('#roomName').textContent = name;
-        this.container.querySelector('#roomDescription').textContent = description || '';
+        const roomName = this.container.querySelector('#roomName');
+        const roomDescription = this.container.querySelector('#roomDescription');
+        const roomId = this.container.querySelector('#roomId');
+        const copyRoomId = this.container.querySelector('#copyRoomId');
+
+        roomName.textContent = name;
+        roomDescription.textContent = description;
+
+        // Get the join key from the room object
+        const joinKey = window.room?.currentRoom?.join_key || '';
+        roomId.textContent = joinKey;
+
+        // Copy functionality
+        const copyHandler = async () => {
+            try {
+                await navigator.clipboard.writeText(joinKey);
+                copyRoomId.classList.add('copied');
+                copyRoomId.title = 'Copied!';
+                setTimeout(() => {
+                    copyRoomId.classList.remove('copied');
+                    copyRoomId.title = 'Copy Join Key';
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy:', err);
+            }
+        };
+
+        // Remove old listener if exists
+        copyRoomId.removeEventListener('click', copyHandler);
+        // Add new listener
+        copyRoomId.addEventListener('click', copyHandler);
     }
 
     updateMembers(members) {
@@ -93,7 +126,7 @@ export class ChatArea {
         
         if (type === 'system') {
             messageDiv.innerHTML = `
-                <div class="message-content system-message">
+                <div class="message-content system">
                     ${text}
                 </div>
             `;
@@ -108,7 +141,7 @@ export class ChatArea {
         }
         
         messagesDiv.appendChild(messageDiv);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        messagesDiv.parentNode.scrollTop = messagesDiv.parentNode.scrollHeight;
     }
 
     show() {
