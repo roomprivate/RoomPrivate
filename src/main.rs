@@ -3,6 +3,7 @@ mod room;
 mod messages;
 mod server;
 
+<<<<<<< HEAD
 use std::fs::File;
 use std::io::BufReader;
 use rustls::{Certificate, PrivateKey, ServerConfig};
@@ -61,6 +62,11 @@ fn load_tls_config() -> Option<ServerConfig> {
     }
 }
 
+=======
+use warp::Filter;
+use server::Server;
+
+>>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -86,6 +92,7 @@ async fn main() {
         .or(static_files)
         .with(warp::cors().allow_any_origin());
 
+<<<<<<< HEAD
     match load_tls_config() {
         Some(_) => {
             println!("Starting secure server (HTTPS/WSS) on port 2052...");
@@ -103,4 +110,10 @@ async fn main() {
                 .await;
         }
     }
+=======
+    println!("Server starting on port 2052...");
+    warp::serve(routes)
+        .run(([0, 0, 0, 0], 2052))
+        .await;
+>>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
 }
