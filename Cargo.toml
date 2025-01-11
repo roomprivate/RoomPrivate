@@ -13,18 +13,11 @@ aes-gcm = "0.10"
 rand = "0.8"
 sha2 = "0.10"
 base64 = "0.21"
-<<<<<<< HEAD
-warp = { version = "0.3", features = ["tls"] }
-=======
 warp = "0.3"
->>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
 uuid = { version = "1.6", features = ["v4"] }
 log = "0.4"
 env_logger = "0.10"
 thiserror = "1.0"
 async-trait = "0.1"
-<<<<<<< HEAD
 rustls = "0.21"
 rustls-pemfile = "1.0"
-=======
->>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
