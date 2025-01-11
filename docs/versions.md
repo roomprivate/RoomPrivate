@@ -19,3 +19,4 @@ We follow [Semantic Versioning 2.0.0](https://semver.org/), where each version n
 - **2.6.1-alpha**: Finished Klee Socket
 - **2.7.1-alpha**: The first redesign of the web client, replacing the old RoomPrivate Client with the Medusa Client.
 - **3.0.2-beta**: Major updating featuring a full Rust backend and the Nietzsche Client for the web.
+- **3.1.0-beta**: Added upload system for files and videos, with chunked upload for large files, and backend features for SHA256 of uploaded files. And some bug fixes.
