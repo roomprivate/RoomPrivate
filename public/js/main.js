@@ -48,6 +48,8 @@ const leaveRoomBtn = document.getElementById('leaveRoom');
 const messageInput = document.getElementById('messageInput');
 const sendMessageBtn = document.querySelector('.btn-send');
 const copyRoomIdBtn = document.getElementById('copyRoomId');
+const fileInput = document.getElementById('fileInput');
+const uploadBtn = document.getElementById('uploadBtn');
 
 // Copy Room ID functionality
 copyRoomIdBtn.addEventListener('click', async () => {
@@ -108,6 +110,98 @@ joinRoomPanel.querySelector('button').addEventListener('click', () => {
 
 leaveRoomBtn.addEventListener('click', () => room.leaveRoom());
 
+// File upload handling
+uploadBtn.addEventListener('click', () => {
+    fileInput.click();
+});
+
+fileInput.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+        console.log('Selected file:', {
+            name: file.name,
+            type: file.type,
+            size: file.size
+        });
+
+        // Check file size (limit to 100MB)
+        const maxSize = 100 * 1024 * 1024; // 100MB in bytes
+        if (file.size > maxSize) {
+            console.warn('File too large:', {
+                size: file.size,
+                maxSize: maxSize
+            });
+            alert('File size must be less than 100MB');
+            return;
+        }
+
+        // Show upload progress in chat
+        const progressMessage = appendMessage(`📤 Uploading ${file.name}...`, 'system');
+        
+        // Create preview if it's an image or video
+        if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
+            console.log('Creating preview for:', file.type);
+            const previewUrl = URL.createObjectURL(file);
+            const previewMessage = appendMessage(createLocalPreview(file, previewUrl), 'self');
+        }
+        
+        console.log('Starting file upload...');
+        await room.uploadFile(file);
+        console.log('File upload completed');
+        
+        // Remove progress message
+        if (progressMessage) {
+            progressMessage.remove();
+        }
+        
+        // Clear the input
+        fileInput.value = '';
+    } catch (error) {
+        console.error('Error in file upload:', error);
+        appendMessage('❌ Failed to upload file', 'system');
+    }
+});
+
+function createLocalPreview(file, previewUrl) {
+    let preview = '';
+    
+    if (file.type.startsWith('image/')) {
+        preview = `
+            <div class="file-preview">
+                <img src="${previewUrl}" alt="${file.name}" />
+                <div class="file-info">
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-size">${formatFileSize(file.size)}</span>
+                </div>
+            </div>
+        `;
+    } else if (file.type.startsWith('video/')) {
+        preview = `
+            <div class="file-preview">
+                <video controls>
+                    <source src="${previewUrl}" type="${file.type}">
+                    Your browser does not support the video tag.
+                </video>
+                <div class="file-info">
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-size">${formatFileSize(file.size)}</span>
+                </div>
+            </div>
+        `;
+    }
+    
+    return `<div class="file-message">${preview}</div>`;
+}
+
+function formatFileSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    else if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+    else return (bytes / 1073741824).toFixed(1) + ' GB';
+}
+
 // Message handling
 function appendMessage(text, type, sender = '') {
     const messagesDiv = document.getElementById('messages');
@@ -119,26 +213,45 @@ function appendMessage(text, type, sender = '') {
     if (type === 'system') {
         messageDiv.innerHTML = `<div class="message-bubble system">${text}</div>`;
     } else {
+        // Check if the message contains a file preview
+        const isFileMessage = text.includes('file-message') || text.includes('file-preview');
+        const messageClass = isFileMessage ? 'file-message' : '';
+        
         messageDiv.innerHTML = `
             <div class="message-content">
                 ${type === 'self' ? '' : `<div class="message-sender">${sender}</div>`}
-                <div class="message-bubble ${type === 'self' ? 'outgoing' : 'incoming'}">
+                <div class="message-bubble ${type === 'self' ? 'outgoing' : 'incoming'} ${messageClass}">
                     ${text}
                     <div class="message-time">${timestamp}</div>
                 </div>
             </div>
         `;
+
+        // Add click handler for file downloads
+        if (isFileMessage && type === 'other') {
+            const fileElement = messageDiv.querySelector('.file-message');
+            if (fileElement) {
+                const fileId = fileElement.dataset.fileId;
+                if (fileId) {
+                    fileElement.addEventListener('click', () => {
+                        room.requestFileDownload(fileId);
+                    });
+                }
+            }
+        }
     }
     
     messagesDiv.appendChild(messageDiv);
     
-    // Keep only the last 100 messages to prevent excessive growth
+    // Keep only the last 100 messages
     while (messagesDiv.children.length > 100) {
         messagesDiv.removeChild(messagesDiv.firstChild);
     }
     
     // Scroll to bottom
     messageDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    
+    return messageDiv;
 }
 
 // Message input handling
