@@ -41,6 +41,7 @@
                     <div id="createRoom" class="control-panel hidden">
                         <input type="text" id="createRoomName" placeholder="Room Name" required>
                         <input type="text" id="createRoomDesc" placeholder="Room Description">
+                        <input type="text" id="createUserName" placeholder="Your Name" required>
                         <input type="password" id="createRoomPassword" placeholder="Room Password (optional)">
                         <button class="btn-primary">Create</button>
                     </div>
@@ -111,5 +112,13 @@
         </div>
     </div>
 
+    <div class="info-popout-overlay">
+        <div class="info-popout">
+            <button class="close-btn">×</button>
+            <img src="logo.png" alt="RoomPrivate Logo" class="logo">
+            <div class="info-content">
+            </div>
+        </div>
+    </div>
 </body>
 </html>
