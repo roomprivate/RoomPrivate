@@ -3,7 +3,6 @@ mod room;
 mod messages;
 mod server;
 
-<<<<<<< HEAD
 use std::fs::File;
 use std::io::BufReader;
 use rustls::{Certificate, PrivateKey, ServerConfig};
@@ -62,11 +61,6 @@ fn load_tls_config() -> Option<ServerConfig> {
     }
 }
 
-=======
-use warp::Filter;
-use server::Server;
-
->>>>>>> 00c1f4839a252783e3cac59c97d2ddf1744fdb95
 #[tokio::main]
 async fn main() {
     env_logger::init();
