@@ -8,8 +8,8 @@ use sha2::{Sha256, Digest};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 
-const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100MB
-const FILE_EXPIRY_DURATION: Duration = Duration::from_secs(15 * 60); // 15 minutes
+const MAX_FILE_SIZE: usize = 100 * 1024 * 1024;
+const FILE_EXPIRY_DURATION: Duration = Duration::from_secs(15 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileMetadata {
@@ -50,17 +50,14 @@ impl FileManager {
         mime_type: String,
         content: Vec<u8>,
     ) -> Result<FileMetadata, String> {
-        // Check file size
         if content.len() > MAX_FILE_SIZE {
             return Err("File size exceeds maximum allowed size".to_string());
         }
 
-        // Calculate SHA256
         let mut hasher = Sha256::new();
         hasher.update(&content);
         let sha256 = format!("{:x}", hasher.finalize());
 
-        // Check for duplicates
         {
             let files = self.files.read().await;
             if let Some(existing) = files.values().find(|f| f.metadata.sha256 == sha256) {
@@ -90,11 +87,9 @@ impl FileManager {
             path: file_path,
         };
 
-        // Clone id before moving it into the HashMap
         let mut files = self.files.write().await;
         files.insert(id.clone(), entry);
 
-        // Schedule cleanup
         let files_clone = self.files.clone();
         let id_clone = id.clone();
         let path_clone = self.storage_path.join(&id);
