@@ -14,299 +14,78 @@
     <meta property="og:image" content="/logo.png">
     <meta property="og:url" content="https://room.juliaklee.wtf">
     <meta name="twitter:card" content="summary_large_image">
-    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        primary: {
-                            50: '#f0f9ff',
-                            100: '#e0f2fe',
-                            200: '#bae6fd',
-                            300: '#7dd3fc',
-                            400: '#38bdf8',
-                            500: '#0ea5e9',
-                            600: '#0284c7',
-                            700: '#0369a1',
-                            800: '#075985',
-                            900: '#0c4a6e',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <style>
-        body { 
-            font-family: 'Inter', sans-serif;
-            background-color: #111827;
-            color: #F3F4F6;
-        }
-        
-        .primary-button {
-            background-color: #3B82F6;
-            color: white;
-            transition: all 0.2s;
-        }
-        
-        .primary-button:hover {
-            background-color: #2563EB;
-        }
-
-        .secondary-button {
-            background-color: #374151;
-            color: white;
-            transition: all 0.2s;
-        }
-
-        .secondary-button:hover {
-            background-color: #4B5563;
-        }
-
-        .messages-container { scrollbar-width: thin; }
-        .messages-container::-webkit-scrollbar { width: 6px; }
-        .messages-container::-webkit-scrollbar-track { background: #f1f1f1; }
-        .messages-container::-webkit-scrollbar-thumb { background: #888; border-radius: 3px; }
-        .messages-container::-webkit-scrollbar-thumb:hover { background: #666; }
-        @media (max-width: 768px) {
-            .members-sidebar { 
-                position: fixed;
-                right: 0;
-                top: 0;
-                bottom: 0;
-                transform: translateX(100%);
-                transition: transform 0.3s ease-in-out;
-            }
-            .members-sidebar.active {
-                transform: translateX(0);
-            }
-        }
-        .connection-status {
-            position: fixed;
-            top: 1rem;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 40;
-            padding: 0.5rem 1rem;
-            border-radius: 0.5rem;
-            font-size: 0.875rem;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            background-color: rgba(255, 255, 255, 0.9);
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-        
-        .dark .connection-status {
-            background-color: rgba(31, 41, 55, 0.9);
-        }
-
-        @media (max-width: 640px) {
-            .connection-status {
-                top: auto;
-                bottom: 5rem;
-                left: 1rem;
-                right: 1rem;
-                transform: none;
-                width: auto;
-            }
-        }
-
-        #dark-mode-toggle {
-            position: fixed;
-            top: 1rem;
-            right: 1rem;
-            z-index: 50;
-            padding: 0.5rem;
-            border-radius: 0.5rem;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-        }
-    </style>
+    <link rel="stylesheet" href="styles/main.css">
 </head>
-<body class="bg-gray-900">
-    <!-- Join Container -->
-    <div id="join-container" class="container max-w-md mx-auto px-4 py-8">
-        <div class="bg-gray-800 rounded-lg shadow-xl p-8">
-            <div class="text-center mb-8">
-                <h1 id="app-name" class="text-4xl font-bold mb-4 text-white">RoomPrivate</h1>
-                <p id="app-version" class="text-sm text-blue-400 mb-2">v0.5.0 Alpha</p>
-                <p id="app-description" class="text-gray-300 mb-4">Secure, end-to-end encrypted chat rooms for private conversations</p>
-                <p class="text-sm text-gray-400">
-                    By <span id="app-author">Klee & C0de</span> | 
-                    <a id="app-website" href="https://room.juliaklee.wtf" class="text-blue-400 hover:text-blue-300">Website</a>
-                </p>
+<body>
+    <div class="app-container">
+        <div class="left-sidebar">
+            <div class="sidebar-header">
+                <h2>RoomPrivate</h2>
             </div>
-            <div class="space-y-4">
-                <button id="create-room-btn" class="w-full py-3 px-4 primary-button rounded-lg">
-                    Create Room
+            <div class="room-actions">
+                <button id="createRoomBtn" class="action-btn">
+                    <i class="fas fa-plus"></i> Create Room
                 </button>
-                <button id="join-room-btn" class="w-full py-3 px-4 secondary-button rounded-lg">
-                    Join Room
+                <button id="joinRoomBtn" class="action-btn">
+                    <i class="fas fa-sign-in-alt"></i> Join Room
                 </button>
             </div>
-        </div>
-    </div>
+            <div id="roomControls" class="room-controls">
+                <div id="createRoom" class="control-panel hidden">
+                    <input type="text" id="createRoomName" placeholder="Room Name" required>
+                    <input type="text" id="createRoomDesc" placeholder="Room Description">
+                    <input type="password" id="createRoomPassword" placeholder="Room Password (optional)">
+                    <button class="btn-primary">Create</button>
+                </div>
 
-    <!-- Create Room Form -->
-    <div id="create-room-container" class="container max-w-md mx-auto px-4 py-8 hidden">
-        <div class="bg-gray-800 rounded-lg shadow-lg p-8">
-            <h2 class="text-2xl font-semibold mb-6 text-white">Create a New Room</h2>
-            <div class="space-y-4">
-                <div>
-                    <label for="create-username" class="block text-sm font-medium text-white mb-1">Your Username</label>
-                    <input type="text" id="create-username" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter your username">
-                </div>
-                <div>
-                    <label for="room-description" class="block text-sm font-medium text-white mb-1">Room Description (Optional)</label>
-                    <input type="text" id="room-description" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room description">
-                </div>
-                <div>
-                    <label for="room-max-members" class="block text-sm font-medium text-white mb-1">Max Members (0 for unlimited)</label>
-                    <input type="number" id="room-max-members" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" value="0" min="0">
-                </div>
-                <div class="flex items-center">
-                    <input type="checkbox" id="room-password-toggle" class="w-4 h-4 text-primary-600 border-gray-600 rounded focus:ring-primary-500">
-                    <label for="room-password-toggle" class="ml-2 block text-sm text-white">Password Protected</label>
-                </div>
-                <div id="room-password-group" class="hidden">
-                    <label for="room-password" class="block text-sm font-medium text-white mb-1">Room Password</label>
-                    <input type="password" id="room-password" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room password">
-                </div>
-                <div class="flex gap-4 pt-4">
-                    <button type="button" id="create-room-submit" class="flex-1 py-3 px-4 primary-button rounded-lg">Create Room</button>
-                    <button type="button" class="back-btn py-3 px-4 bg-gray-700 text-white rounded-lg hover:bg-gray-600">Back</button>
+                <div id="joinRoom" class="control-panel hidden">
+                    <input type="text" id="joinKey" placeholder="Join Key" required>
+                    <input type="password" id="joinPassword" placeholder="Room Password (if required)">
+                    <input type="text" id="userName" placeholder="Your Name" required>
+                    <button class="btn-primary">Join</button>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Join Room Form -->
-    <div id="join-room-form" class="container max-w-md mx-auto px-4 py-8 hidden">
-        <div class="bg-gray-800 rounded-lg shadow-lg p-8">
-            <h2 class="text-2xl font-semibold mb-6 text-white">Join a Room</h2>
-            <div class="space-y-4">
-                <div>
-                    <label for="username" class="block text-sm font-medium text-white mb-1">Your Username</label>
-                    <input type="text" id="username" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter your username">
-                </div>
-                <div>
-                    <label for="room-id" class="block text-sm font-medium text-white mb-1">Room ID</label>
-                    <input type="text" id="room-id" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room ID">
-                </div>
-                <div>
-                    <label for="join-room-password" class="block text-sm font-medium text-white mb-1">Room Password (if required)</label>
-                    <input type="password" id="join-room-password" class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500" placeholder="Enter room password">
-                </div>
-                <div class="flex gap-4 pt-4">
-                    <button id="join-room-submit" class="flex-1 py-3 px-4 primary-button rounded-lg">Join Room</button>
-                    <button class="back-btn flex-1 py-3 px-4 secondary-button rounded-lg">Back</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Chat Container -->
-    <div id="chat-container" class="fixed inset-0 bg-gray-900 hidden">
-        <div class="flex h-full">
-            <!-- Main Chat Area -->
-            <div class="flex-1 flex flex-col min-w-0">
-                <!-- Room Info -->
-                <div class="bg-gray-800 border-b border-gray-700 px-6 py-4">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <h2 id="room-name-display" class="text-xl font-semibold text-white"></h2>
-                            <div class="flex items-center space-x-2">
-                                <p id="room-id-display" class="text-sm text-gray-400"></p>
-                                <button id="copy-room-id" class="p-1 text-gray-400 hover:text-white transition-colors" title="Copy Room ID">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3"></path>
-                                    </svg>
-                                </button>
-                            </div>
-                        </div>
-                        <button id="toggle-members" class="md:hidden p-2 text-gray-400 hover:text-white">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                <!-- Messages Area -->
-                <div class="flex-1 overflow-y-auto bg-gray-800 p-6 messages-container">
-                    <div id="messages" class="space-y-6 max-w-3xl mx-auto"></div>
-                </div>
-
-                <!-- Message Input Area -->
-                <div class="border-t border-gray-700 bg-gray-800 p-4">
-                    <div class="max-w-3xl mx-auto">
-                        <div class="flex items-end gap-4">
-                            <div class="flex-1 min-h-[40px] max-h-[120px]">
-                                <textarea id="message-input" 
-                                    class="w-full px-4 py-2 border border-gray-600 bg-gray-700 text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500 resize-none"
-                                    placeholder="Type your message... (Shift + Enter for new line)"
-                                    rows="1"></textarea>
-                            </div>
-                            <button id="send-message" class="px-6 py-2 primary-button rounded-lg flex items-center gap-2">
-                                <span>Send</span>
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
-                                </svg>
+        <div class="main-content">
+            <div id="chatArea" class="chat-container">
+                <div class="chat-header">
+                    <div class="header-main">
+                        <h2 id="roomName"></h2>
+                        <div class="room-id-container">
+                            <span class="room-id-label">Room ID:</span>
+                            <span id="roomId" class="room-id"></span>
+                            <button id="copyRoomId" class="btn-icon" title="Copy Room ID">
+                                <i class="fas fa-copy"></i>
                             </button>
                         </div>
                     </div>
+                    <p id="roomDescription"></p>
+                </div>
+                <div id="messages" class="messages-container"></div>
+                <div class="input-container">
+                    <input type="text" id="messageInput" placeholder="Type your message...">
+                    <button class="btn-send">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
                 </div>
             </div>
+        </div>
 
-            <!-- Members Sidebar -->
-            <div class="members-sidebar w-72 bg-gray-800 border-l border-gray-700 flex flex-col">
-                <div class="p-4 border-b border-gray-700">
-                    <div class="flex items-center justify-between">
-                        <h3 class="text-lg font-semibold text-white">Members</h3>
-                        <span id="members-count" class="text-sm text-gray-500">0/0</span>
-                        <button class="md:hidden p-2 hover:bg-gray-700 rounded-lg close-members">
-                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-                <div id="members-list" class="flex-1 overflow-y-auto p-4 space-y-2">
-                    <!-- Members will be inserted here with proper dark mode colors -->
-                </div>
-                <div class="p-4 border-t border-gray-700 space-y-2">
-                    <div class="flex gap-2">
-                        <button id="download-txt" class="flex-1 py-2 px-4 secondary-button rounded-lg text-sm hover:bg-gray-600">
-                            <span class="flex items-center justify-center">
-                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-                                </svg>
-                                TXT
-                            </span>
-                        </button>
-                        <button id="download-csv" class="flex-1 py-2 px-4 secondary-button rounded-lg text-sm hover:bg-gray-600">
-                            <span class="flex items-center justify-center">
-                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-                                </svg>
-                                CSV
-                            </span>
-                        </button>
-                    </div>
-                    <button id="leave-room" class="w-full py-2 px-4 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors">Leave Room</button>
-                </div>
+        <div class="right-sidebar">
+            <div class="sidebar-header">
+                <h3>Members</h3>
+                <span class="member-count">0</span>
+            </div>
+            <div id="members" class="members-list"></div>
+            <div class="sidebar-footer">
+                <button id="leaveRoom" class="action-btn danger">
+                    <i class="fas fa-sign-out-alt"></i> Leave Room
+                </button>
             </div>
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-    <script src="js/accessLogger.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>
