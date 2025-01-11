@@ -159,19 +159,20 @@ class Room extends EventEmitter {
         };
     }
 
-    createRoom(name, description, password) {
-        if (!name) {
-            alert('Room name is required');
+    createRoom(name, description, password, userName) {
+        if (!name || !userName) {
+            alert('Room name and your name are required');
             return;
         }
 
-        this.currentUserName = 'Owner';
+        this.currentUserName = userName;
         
         this.ws.send(JSON.stringify({
             type: 'create_room',
             name,
             description,
-            password: password || undefined
+            password: password || undefined,
+            user_name: userName
         }));
     }
 

@@ -9,6 +9,7 @@ pub enum ClientMessage {
         name: String,
         description: String,
         password: Option<String>,
+        user_name: String,
     },
     #[serde(rename = "join_room")]
     JoinRoom {

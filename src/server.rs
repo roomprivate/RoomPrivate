@@ -93,7 +93,7 @@ impl Server {
         file_manager: &FileManager,
     ) {
         match message {
-            ClientMessage::CreateRoom { name, description, password } => {
+            ClientMessage::CreateRoom { name, description, password, user_name } => {
                 let (_, encryption_key) = RoomCrypto::new();
                 let room = Room::new(name.clone(), description, password, encryption_key.clone());
                 let room_info = room.info.clone();
@@ -103,7 +103,7 @@ impl Server {
                     rooms_lock.insert(room_info.id.clone(), room.clone());
                 }
 
-                room.add_participant(participant_id.to_string(), "Owner".to_string()).await;
+                room.add_participant(participant_id.to_string(), user_name).await;
 
                 Self::send_message_to_participant(
                     participant_id,
@@ -235,6 +235,7 @@ impl Server {
                                 }
                             }
                             
+
                             if let Some(room) = current_room {
                                 // Create a chat message with the file link
                                 let file_message = ServerMessage::ChatMessage {
@@ -242,6 +243,7 @@ impl Server {
                                     sender: participant_id.to_string(),
                                 };
                                 
+
                                 // Broadcast to all room members
                                 Self::broadcast_to_room(room, file_message, connections).await;
                             }

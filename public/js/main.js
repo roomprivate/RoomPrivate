@@ -83,13 +83,15 @@ joinRoomBtn.addEventListener('click', () => {
 createRoomPanel.querySelector('button').addEventListener('click', () => {
     const name = document.getElementById('createRoomName').value.trim();
     const desc = document.getElementById('createRoomDesc').value.trim();
+    const userName = document.getElementById('createUserName').value.trim();
     const password = document.getElementById('createRoomPassword').value.trim();
     
-    if (name) {
-        room.createRoom(name, desc, password);
+    if (name && userName) {
+        room.createRoom(name, desc, password, userName);
         createRoomPanel.classList.add('hidden');
         document.getElementById('createRoomName').value = '';
         document.getElementById('createRoomDesc').value = '';
+        document.getElementById('createUserName').value = '';
         document.getElementById('createRoomPassword').value = '';
     }
 });
@@ -138,7 +140,7 @@ fileInput.addEventListener('change', async (e) => {
         }
 
         // Show upload progress in chat
-        const progressMessage = appendMessage(`📤 Uploading ${file.name}...`, 'system');
+        const progressMessage = appendMessage(` Uploading ${file.name}...`, 'system');
         
         // Create preview if it's an image or video
         if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
@@ -160,7 +162,7 @@ fileInput.addEventListener('change', async (e) => {
         fileInput.value = '';
     } catch (error) {
         console.error('Error in file upload:', error);
-        appendMessage('❌ Failed to upload file', 'system');
+        appendMessage(' Failed to upload file', 'system');
     }
 });
 
@@ -282,13 +284,13 @@ sendMessageBtn.addEventListener('click', () => {
 room.on('roomCreated', (roomInfo) => {
     document.getElementById('roomName').textContent = roomInfo.name;
     document.getElementById('roomDescription').textContent = roomInfo.description || '';
-    document.getElementById('roomId').textContent = roomInfo.id || roomInfo.join_key || 'N/A';
+    document.getElementById('roomId').textContent = roomInfo.join_key || 'N/A';
 });
 
 room.on('roomJoined', (roomInfo, participants) => {
     document.getElementById('roomName').textContent = roomInfo.name;
     document.getElementById('roomDescription').textContent = roomInfo.description || '';
-    document.getElementById('roomId').textContent = roomInfo.id || roomInfo.join_key || 'N/A';
+    document.getElementById('roomId').textContent = roomInfo.join_key || 'N/A';
     updateMembers(participants);
 });
 
@@ -343,6 +345,41 @@ document.getElementById('messages').addEventListener('scroll', function() {
     scrollButton.classList.toggle('hidden', isNearBottom);
 });
 
-document.addEventListener('DOMContentLoaded', () => {
-    // No-op
+// Info popout functionality
+async function loadInfoPopout() {
+    try {
+        const response = await fetch('/info.json');
+        const info = await response.json();
+        
+        const infoContent = document.querySelector('.info-popout .info-content');
+        infoContent.innerHTML = `
+            <div class="info-item">
+                <strong>Name</strong>
+                ${info.name}
+            </div>
+            <div class="info-item">
+                <strong>Version</strong>
+                ${info.version}
+            </div>
+            <div class="info-item">
+                <strong>Description</strong>
+                ${info.description}
+            </div>
+            <div class="info-item">
+                <strong>Author</strong>
+                ${info.author}
+            </div>
+            <a href="${info.website}" target="_blank" class="website-link">Visit Website</a>
+        `;
+    } catch (error) {
+        console.error('Error loading info:', error);
+    }
+}
+
+// Load info when DOM is ready
+document.addEventListener('DOMContentLoaded', loadInfoPopout);
+
+// Info popout close functionality
+document.querySelector('.info-popout .close-btn').addEventListener('click', () => {
+    document.querySelector('.info-popout-overlay').style.display = 'none';
 });
