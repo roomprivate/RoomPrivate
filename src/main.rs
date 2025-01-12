@@ -4,8 +4,6 @@ mod messages;
 mod server;
 mod files;
 
-use std::fs::File;
-use std::io::BufReader;
 use warp::Filter;
 use server::Server;
 use std::sync::Arc;
