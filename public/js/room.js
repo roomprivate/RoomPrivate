@@ -62,27 +62,50 @@ class Room extends EventEmitter {
                         break;
                         
                     case 'chat_message':
-                        if (typeof message.content === 'string' && message.content.includes('[Video:')) {
-                            const match = message.content.match(/\[Video: (.*?)\] \((.*?)\)/);
-                            if (match) {
-                                const [_, filename, size] = match;
-                                const preview = `
+                        if (message.content && message.content.type === 'file') {
+                            const fileData = message.content;
+                            let preview = '';
+                            
+                            if (fileData.mime_type.startsWith('image/')) {
+                                preview = `
                                     <div class="file-preview">
-                                        <video controls preload="none">
-                                            <source src="/files/${filename}" type="video/mp4">
-                                            Your browser does not support the video tag.
-                                        </video>
+                                        <img src="/files/${fileData.id}" alt="${fileData.name}" loading="lazy" />
                                         <div class="file-info">
-                                            <span class="file-name">${filename}</span>
-                                            <span class="file-size">${size}</span>
+                                            <span class="file-name">${fileData.name}</span>
+                                            <span class="file-size">${this.formatFileSize(fileData.size)}</span>
                                         </div>
                                     </div>
                                 `;
-                                this.emit('message', preview, 'other', message.sender);
+                            } else if (fileData.mime_type.startsWith('video/')) {
+                                preview = `
+                                    <div class="file-preview">
+                                        <video controls preload="none">
+                                            <source src="/files/${fileData.id}" type="${fileData.mime_type}">
+                                            Your browser does not support the video tag.
+                                        </video>
+                                        <div class="file-info">
+                                            <span class="file-name">${fileData.name}</span>
+                                            <span class="file-size">${this.formatFileSize(fileData.size)}</span>
+                                        </div>
+                                    </div>
+                                `;
+                            } else {
+                                preview = `
+                                    <div class="file-preview">
+                                        <div class="file-icon">
+                                            <i class="fas fa-file"></i>
+                                        </div>
+                                        <div class="file-info">
+                                            <span class="file-name">${fileData.name}</span>
+                                            <span class="file-size">${this.formatFileSize(fileData.size)}</span>
+                                            <a href="/files/${fileData.id}" download="${fileData.name}" class="download-link">
+                                                <i class="fas fa-download"></i> Download
+                                            </a>
+                                        </div>
+                                    </div>
+                                `;
                             }
-                        } else if (message.content && message.content.type === 'file') {
-                            const filePreview = this.createFilePreview(message.content);
-                            this.emit('message', filePreview, 'other', message.sender);
+                            this.emit('message', `<div class="file-message" data-file-id="${fileData.id}">${preview}</div>`, message.sender === this.currentUserName ? 'self' : 'other', message.sender);
                         } else {
                             const processedContent = markdownProcessor.process(message.content);
                             this.emit('message', processedContent, 'other', message.sender);
@@ -104,8 +127,17 @@ class Room extends EventEmitter {
 
                     case 'file_uploaded':
                         console.log('File uploaded successfully:', message.metadata);
-                        const fileInfo = `✅ Uploaded: ${message.metadata.name} (${this.formatFileSize(message.metadata.size)})`;
-                        this.emit('message', fileInfo, 'system');
+                        // Send preview to all users
+                        this.ws.send(JSON.stringify({
+                            type: 'chat_message',
+                            content: {
+                                type: 'file',
+                                id: message.metadata.id,
+                                name: message.metadata.name,
+                                mime_type: message.metadata.mime_type,
+                                size: message.metadata.size
+                            }
+                        }));
                         break;
 
                     case 'file_content':
@@ -196,7 +228,6 @@ class Room extends EventEmitter {
 
     async uploadFile(file) {
         const MAX_SIZE = 100 * 1024 * 1024;
-        const CHUNK_SIZE = 10 * 1024 * 1024;
 
         if (file.size > MAX_SIZE) {
             this.emit('message', '❌ File too large (max 100MB)', 'system');
@@ -205,25 +236,17 @@ class Room extends EventEmitter {
 
         try {
             await this.uploadFileInChunks(file);
-
-            if (file.type.startsWith('video/')) {
-                this.ws.send(JSON.stringify({
-                    type: 'chat_message',
-                    content: `[Video: ${file.name}] (${this.formatFileSize(file.size)})`
-                }));
-            } else {
-                const base64Content = await this.readFileAsBase64(file);
-                this.ws.send(JSON.stringify({
-                    type: 'chat_message',
-                    content: {
-                        type: 'file',
-                        filename: file.name,
-                        filetype: file.type,
-                        filesize: file.size,
-                        content: base64Content
-                    }
-                }));
-            }
+            
+            // Send file message to all users
+            this.ws.send(JSON.stringify({
+                type: 'chat_message',
+                content: {
+                    type: 'file',
+                    name: file.name,
+                    mime_type: file.type,
+                    size: file.size
+                }
+            }));
         } catch (error) {
             console.error('Error uploading file:', error);
             this.emit('message', '❌ Failed to upload file', 'system');
