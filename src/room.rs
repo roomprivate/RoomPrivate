@@ -18,7 +18,7 @@ pub struct Room {
     pub info: RoomInfo,
     password: Option<String>,
     encryption_key: String,
-    participants: Arc<RwLock<HashMap<String, String>>>, // participant_id -> name
+    participants: Arc<RwLock<HashMap<String, String>>>,
 }
 
 impl Room {

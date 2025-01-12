@@ -49,7 +49,6 @@ function hideChatContainer() {
     if (chatContainer) chatContainer.style.display = 'none';
 }
 
-// Initialize chat container visibility
 document.addEventListener('DOMContentLoaded', () => {
     const room = window.room?.currentRoom;
     if (room) {
@@ -138,82 +137,14 @@ fileInput.addEventListener('change', async (e) => {
     if (!file) return;
 
     try {
-        console.log('Selected file:', {
-            name: file.name,
-            type: file.type,
-            size: file.size
-        });
-
-        const maxSize = 100 * 1024 * 1024;
-        if (file.size > maxSize) {
-            console.warn('File too large:', {
-                size: file.size,
-                maxSize: maxSize
-            });
-            alert('File size must be less than 100MB'); //need to change that to a better "error/information" display
-            return;
-        }
-
-        const progressMessage = appendMessage(` Uploading ${file.name}...`, 'system');
-        
-        if (file.type.startsWith('image/') || file.type.startsWith('video/')) {
-            console.log('Creating preview for:', file.type);
-            const previewUrl = URL.createObjectURL(file);
-            const previewMessage = appendMessage(createLocalPreview(file, previewUrl), 'self');
-        }
-        
-        console.log('Starting file upload...');
+        appendMessage('Uploading file...', 'system');
         await room.uploadFile(file);
-        console.log('File upload completed');
-        
-        if (progressMessage) {
-            progressMessage.remove();
-        }
-        
         fileInput.value = '';
     } catch (error) {
         console.error('Error in file upload:', error);
-        appendMessage(' Failed to upload file', 'system');
+        appendMessage('Failed to upload file', 'system');
     }
 });
-
-function createLocalPreview(file, previewUrl) {
-    let preview = '';
-    
-    if (file.type.startsWith('image/')) {
-        preview = `
-            <div class="file-preview">
-                <img src="${previewUrl}" alt="${file.name}" />
-                <div class="file-info">
-                    <span class="file-name">${file.name}</span>
-                    <span class="file-size">${formatFileSize(file.size)}</span>
-                </div>
-            </div>
-        `;
-    } else if (file.type.startsWith('video/')) {
-        preview = `
-            <div class="file-preview">
-                <video controls>
-                    <source src="${previewUrl}" type="${file.type}">
-                    Your browser does not support the video tag.
-                </video>
-                <div class="file-info">
-                    <span class="file-name">${file.name}</span>
-                    <span class="file-size">${formatFileSize(file.size)}</span>
-                </div>
-            </div>
-        `;
-    }
-    
-    return `<div class="file-message">${preview}</div>`;
-}
-
-function formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    else if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    else if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
-    else return (bytes / 1073741824).toFixed(1) + ' GB';
-}
 
 function appendMessage(text, type, sender = '') {
     const messagesDiv = document.getElementById('messages');

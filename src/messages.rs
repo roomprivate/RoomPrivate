@@ -29,7 +29,7 @@ pub enum ClientMessage {
     UploadFile {
         name: String,
         mime_type: String,
-        content: String, // Base64 encoded file content
+        content: String,
     },
     #[serde(rename = "get_file")]
     GetFile {
@@ -79,6 +79,6 @@ pub enum ServerMessage {
     #[serde(rename = "file_content")]
     FileContent {
         metadata: FileMetadata,
-        content: String, // Base64 encoded file content
+        content: String,
     },
 }

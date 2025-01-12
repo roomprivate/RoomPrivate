@@ -33,7 +33,6 @@ async fn main() {
             })
     };
 
-    // Add file serving route
     let files_route = {
         let server = Arc::clone(&server);
         warp::path("files")
@@ -68,7 +67,6 @@ async fn main() {
         .await;
 }
 
-// Custom error type for upload errors
 #[derive(Debug)]
 struct UploadError(String);
 
