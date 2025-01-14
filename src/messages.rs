@@ -63,6 +63,7 @@ pub enum ServerMessage {
     ChatMessage {
         sender: String,
         content: String,
+        is: bool,
     },
     #[serde(rename = "member_list")]
     MemberList {

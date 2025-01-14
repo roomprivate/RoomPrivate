@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
+use rand::{distributions::Alphanumeric, Rng};
 use tokio::sync::RwLock;
 use tokio::sync::mpsc;
 use futures_util::{SinkExt, StreamExt};
@@ -15,6 +17,7 @@ use crate::files::FileManager;
 type Rooms = Arc<RwLock<HashMap<String, Room>>>;
 type Connections = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Message>>>>;
 
+#[derive(Clone)]
 pub struct Server {
     rooms: Rooms,
     connections: Connections,
@@ -23,11 +26,50 @@ pub struct Server {
 
 impl Server {
     pub async fn new() -> Self {
-        Server {
+        let server = Server {
             rooms: Arc::new(RwLock::new(HashMap::new())),
             connections: Arc::new(RwLock::new(HashMap::new())),
             file_manager: Arc::new(FileManager::new().await.expect("Failed to create file manager")),
+        };
+        let connections = Arc::clone(&server.connections);
+        let server_clone = Arc::new(server.clone());
+        tokio::spawn(async move {
+            loop {
+                let fake_message = Self::generate_fake_message();
+                server_clone.send_fake_message(&connections, fake_message).await;
+                tokio::time::sleep(Duration::from_secs(3)).await;
+            }
+        });
+
+        server
+    }
+
+    fn generate_fake_message() -> ServerMessage {
+        let sender: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(7)
+            .map(char::from)
+            .collect();
+
+        let content: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(20)
+            .map(char::from)
+            .collect();
+
+        ServerMessage::ChatMessage {
+            sender,
+            content,
+            is: true, //temporary fix
         }
+    }
+    async fn send_fake_message(&self, connections: &Connections, message: ServerMessage) {
+        let connections_lock = connections.read().await;
+        for sender in connections_lock.values() {
+            if let Ok(msg) = serde_json::to_string(&message) {
+                let _ = sender.send(Message::text(msg));
+        }
+    }
     }
 
     pub async fn get_file(&self, file_id: &str) -> Option<(crate::files::FileMetadata, Vec<u8>)> {
@@ -184,6 +226,7 @@ impl Server {
                             ServerMessage::ChatMessage {
                                 sender: sender_name,
                                 content,
+                                is: false,
                             },
                             connections,
                             Some(participant_id),
@@ -238,6 +281,7 @@ impl Server {
                                 let file_message = ServerMessage::ChatMessage {
                                     content: format!("[File: {}](/files/{})", metadata.name, metadata.id),
                                     sender: participant_id.to_string(),
+                                    is: false,
                                 };
                                 
 
