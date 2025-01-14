@@ -32,12 +32,34 @@ impl Server {
             file_manager: Arc::new(FileManager::new().await.expect("Failed to create file manager")),
         };
         let connections = Arc::clone(&server.connections);
-        let server_clone = Arc::new(server.clone());
+
+        let connections_layer1 = Arc::clone(&connections);
+        let server_clone_layer1 = Arc::new(server.clone());
         tokio::spawn(async move {
             loop {
-                let fake_message = Self::generate_fake_message();
-                server_clone.send_fake_message(&connections, fake_message).await;
-                tokio::time::sleep(Duration::from_secs(3)).await;
+                let fake_message = server_clone_layer1::generate_fake_message();
+                server_clone_layer1.send_fake_message(&connections_layer1, fake_message).await;
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
+
+        let connections_layer2 = Arc::clone(&connections);
+        let server_clone_layer2 = Arc::new(server.clone());
+        tokio::spawn(async move {
+            loop {
+                let fake_message = server_clone_layer2::generate_fake_message();
+                server_clone_layer2.send_fake_message(&connections_layer2, fake_message).await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        })
+
+        let connections_layer3 = Arc::clone(&connections);
+        let server_clone_layer3 = Arc::new(server.clone());
+        tokio::spawn(async move {
+            loop {
+                let fake_message = server_clone_layer3::generate_fake_message();
+                server_clone_layer3.send_fake_message(&connections_layer3, fake_message).await;
+                tokio::time::sleep(Duration::from_secs(10)).await;
             }
         });
 
@@ -63,6 +85,7 @@ impl Server {
             is: true, //temporary fix
         }
     }
+
     async fn send_fake_message(&self, connections: &Connections, message: ServerMessage) {
         let connections_lock = connections.read().await;
         for sender in connections_lock.values() {
