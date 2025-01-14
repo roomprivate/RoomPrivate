@@ -52,11 +52,8 @@ async fn main() {
             })
     };
 
-    let static_files = warp::fs::dir("public");
-
     let routes = ws_route
         .or(files_route)
-        .or(static_files)
         .with(warp::cors().allow_any_origin());
 
     println!("Starting HTTP server on port 2052...");
