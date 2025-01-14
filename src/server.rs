@@ -37,7 +37,7 @@ impl Server {
         let server_clone_layer1 = Arc::new(server.clone());
         tokio::spawn(async move {
             loop {
-                let fake_message = server_clone_layer1::generate_fake_message();
+                let fake_message = server_clone_layer1.generate_fake_message();
                 server_clone_layer1.send_fake_message(&connections_layer1, fake_message).await;
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
@@ -47,17 +47,17 @@ impl Server {
         let server_clone_layer2 = Arc::new(server.clone());
         tokio::spawn(async move {
             loop {
-                let fake_message = server_clone_layer2::generate_fake_message();
+                let fake_message = server_clone_layer2.generate_fake_message();
                 server_clone_layer2.send_fake_message(&connections_layer2, fake_message).await;
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
-        })
+        });
 
         let connections_layer3 = Arc::clone(&connections);
         let server_clone_layer3 = Arc::new(server.clone());
         tokio::spawn(async move {
             loop {
-                let fake_message = server_clone_layer3::generate_fake_message();
+                let fake_message = server_clone_layer3.generate_fake_message();
                 server_clone_layer3.send_fake_message(&connections_layer3, fake_message).await;
                 tokio::time::sleep(Duration::from_secs(10)).await;
             }
@@ -66,7 +66,7 @@ impl Server {
         server
     }
 
-    fn generate_fake_message() -> ServerMessage {
+    fn generate_fake_message(&self) -> ServerMessage {
         let sender: String = rand::thread_rng()
             .sample_iter(&Alphanumeric)
             .take(7)
