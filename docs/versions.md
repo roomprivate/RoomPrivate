@@ -24,7 +24,7 @@ There are some videos with incorrect versions displayed, as the Semantic version
 - **3.0.0-alpha**: Major update featuring a full Rust backend and the Nietzsche Client for the web. [Showcase](https://youtu.be/5zqiD9TrosI)
 - **3.1.1-alpha**: Added upload system for files and videos, with chunked upload for large files, and backend features for SHA256 of uploaded files. And some bug fixes.
 - **3.1.2-alpha**: Bug fixes, added support for custom username when creating a room, added a popout on the start. Fixed responsiveness for smartphones.
-- **4.0.0-alpha**: Major update introducing the Otrera Client with emoji support, Tenor GIFs, and markdown, still with some bugs.
+- **4.0.0-alpha**: Major update introducing the Otrera Client with emoji support, Tenor GIFs, and markdown, still with some bugs. [Repository](https://github.com/roomprivate/otreraclient)
 
 ---
 
