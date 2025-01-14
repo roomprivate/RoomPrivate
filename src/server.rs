@@ -17,11 +17,30 @@ use crate::files::FileManager;
 type Rooms = Arc<RwLock<HashMap<String, Room>>>;
 type Connections = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Message>>>>;
 
+struct DeadDrop {
+    messages: Vec<ServerMessage>,
+}
+
+impl DeadDrop {
+    fn new() -> Self {
+        DeadDrop { messages: Vec::new() }
+    }
+
+    fn add_message(&mut self, message: ServerMessage) {
+        self.messages.push(message);
+    }
+    
+    fn retreive_messages(&mut self) -> Vec<ServerMessage> {
+        self.messages.drain(..).collect()
+    }
+}
+
 #[derive(Clone)]
 pub struct Server {
     rooms: Rooms,
     connections: Connections,
     pub file_manager: Arc<FileManager>,
+    dead_drops: Arc<RwLock<HashMap<String, DeadDrop>>>,
 }
 
 impl Server {
@@ -30,7 +49,9 @@ impl Server {
             rooms: Arc::new(RwLock::new(HashMap::new())),
             connections: Arc::new(RwLock::new(HashMap::new())),
             file_manager: Arc::new(FileManager::new().await.expect("Failed to create file manager")),
+            dead_drops: Arc::new(RwLock::new(HashMap::new())),
         };
+
         let connections = Arc::clone(&server.connections);
 
         let connections_layer1 = Arc::clone(&connections);
@@ -64,6 +85,21 @@ impl Server {
         });
 
         server
+    }
+
+    async fn storage_messages(&self, participant_id: &str, message: ServerMessage) {
+        let mut dead_drops = self.dead_drops.write().await;
+        let dead_drop = dead_drops.entry(participant_id.to_string()).or_insert_with(DeadDrop::new);
+        dead_drop.add_message(message);
+    }
+
+    async fn retreive_messages(&self, participant_id: &str) -> Vec<ServerMessage> {
+        let mut dead_drops = self.dead_drops.write().await;
+        if let Some(dead_drop) = dead_drops.get_mut(participant_id) {
+            dead_drop.retreive_messages()
+        } else {
+            Vec::new()
+        }
     }
 
     fn generate_fake_message(&self) -> ServerMessage {
@@ -113,14 +149,14 @@ impl Server {
         let connections = self.connections.clone();
         let participant_id_clone = participant_id.clone();
         let file_manager = self.file_manager.clone();
-
+        let server_clone = Arc::new(self.clone());
         tokio::spawn(async move {
             while let Some(result) = ws_rx.next().await {
                 match result {
                     Ok(msg) => {
                         if let Ok(text) = msg.to_str() {
                             if let Ok(client_msg) = serde_json::from_str::<ClientMessage>(text) {
-                                Self::handle_client_message(
+                                server_clone.handle_client_message(
                                     client_msg,
                                     &participant_id_clone,
                                     &rooms,
@@ -137,7 +173,7 @@ impl Server {
                 }
             }
 
-            Self::handle_disconnect(&participant_id_clone, &rooms, &connections).await;
+            Server::handle_disconnect(&participant_id_clone, &rooms, &connections).await;
         });
 
         tokio::spawn(async move {
@@ -151,6 +187,7 @@ impl Server {
     }
 
     async fn handle_client_message(
+        &self,
         message: ClientMessage,
         participant_id: &str,
         rooms: &Rooms,
@@ -158,6 +195,15 @@ impl Server {
         file_manager: &FileManager,
     ) {
         match message {
+
+            ClientMessage::RetrieveMessages => {
+                let messages = self.retreive_messages(participant_id).await;
+                Self::send_message_to_participant(
+                    participant_id,
+                    ServerMessage::MessagesRetrieved { messages },
+                    connections,
+                ).await;
+            }
             ClientMessage::CreateRoom { name, description, password, user_name } => {
                 let (_, encryption_key) = RoomCrypto::new();
                 let room = Room::new(name.clone(), description, password, encryption_key.clone());

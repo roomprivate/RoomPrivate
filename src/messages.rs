@@ -4,6 +4,7 @@ use super::files::FileMetadata;
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum ClientMessage {
+    RetrieveMessages,
     #[serde(rename = "create_room")]
     CreateRoom {
         name: String,
@@ -40,6 +41,7 @@ pub enum ClientMessage {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum ServerMessage {
+    MessagesRetrieved { messages: Vec<ServerMessage> },
     #[serde(rename = "room_created")]
     RoomCreated {
         room_info: super::room::RoomInfo,
