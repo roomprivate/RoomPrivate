@@ -21,9 +21,7 @@ thiserror = "2.0"
 async-trait = "0.1"
 rustls = "0.23"
 rustls-pemfile = "2.2"
-elliptic-curve = "0.12"
-ecdsa = "0.14"
-p256 = "0.11"
+openssl = "0.7"
 
 [lints]
 clippy.pedantic = { level = "warn", priority = -1 }
