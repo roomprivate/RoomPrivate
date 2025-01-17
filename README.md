@@ -10,4 +10,4 @@ The CSL room system was known between them as "Stupid but functional" because th
 
 After some development, they started taking the project more seriously, and abandoned a lot of Discord-like features (roles for example), releasing new versions. These updates ranged from improving the room system to redesigning the UI, and even doing a complete rewrite in Rust!
 
-There is a full video archive documenting ALL versions of RoomPrivate, including CSL. You can see more about the versions and their videos [here](https://github.com/roomprivate/room/blob/main/docs/versions.md).
+There is a full video archive documenting ALL versions of RoomPrivate, including CSL. You can see more about the versions and their videos [here](https://github.com/roomprivate/room/blob/main/docs/versions.md)
