@@ -1,4 +1,4 @@
-name: Mirror to Codeberg
+name: mirror-repository
 
 on:
   push:
@@ -9,15 +9,16 @@ on:
 jobs:
   mirror:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Checkout the repository
+        uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: Push to Codeberg
-        run: |
-          git config --global user.name "urwq"
-          git config --global user.email "${{ secrets.EMAIL }}"
-          git remote add codeberg https://oauth2:${{ secrets.CODEBERG_PAT }}@codeberg.org/urwq/RoomPrivate.git
-          git push --mirror codeberg
+      - name: Mirror repository to GitLab
+        uses: yesolutions/mirror-action@v0.7.0
+        with:
+          REMOTE: 'https://codeberg.org/urwq/RoomPrivate'
+          GIT_USERNAME: c0dezin
+          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
