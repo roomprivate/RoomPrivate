@@ -1,23 +1,24 @@
-name: Sync to Codeberg
-concurrency:
-    group: ${{ github.ref }}
-    cancel-in-progress: true
+name: mirror-repository
+
 on:
-    push:
-    workflow_dispatch:
-    schedule:
-        - cron: "0 */6 * * *"
+  push:
+  schedule:
+  - cron: "0 */6 * * *"
+  
 
 jobs:
-    codeberg:
-        if: github.repository == 'roomprivate/RoomPrivate'
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v4
-              with:
-                  fetch-depth: 0
-            - uses: pixta-dev/repository-mirroring-action@674e65a7d483ca28dafaacba0d07351bdcc8bd75
-              with:
-                  target_repo_url: "https://codeberg.com/urwq/RoomPrivate"
-                  git_username: "c0dezin"
-                  git_password: ${{ secrets.GIT_PASSWORD }}
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Mirror repository to GitLab
+        uses: yesolutions/mirror-action@v0.7.0
+        with:
+          REMOTE: 'https://codeberg.org/urwq/RoomPrivate'
+          GIT_USERNAME: c0dezin
+          GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
