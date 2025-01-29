@@ -1,6 +1,6 @@
 # RoomPrivate
 
-[https://img.shields.io/static/v1?style=for-the-badge&label=Codeberg Mirror&message=codeberg.org/urwq/RoomPrivate](https://codeberg.org/urwq/RoomPrivate/)
+[![Codeberg Mirror](https://img.shields.io/static/v1?style=for-the-badge&label=Codeberg%20Mirror&message=codeberg.org/urwq/RoomPrivate)](https://codeberg.org/urwq/RoomPrivate/)
 
 RoomPrivate is an open-source, secure, end-to-end encrypted chat created by [c0dE](https://c0de.wtf) and [Júlia Klee](https://juliaklee.wtf/).
 
