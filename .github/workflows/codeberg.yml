@@ -16,7 +16,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Mirror repository to GitLab
+      - name: Mirror repository to Codeberg #I may be stupid
         uses: yesolutions/mirror-action@v0.7.0
         with:
           REMOTE: 'https://codeberg.org/urwq/RoomPrivate'
