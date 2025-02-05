@@ -1,6 +1,8 @@
 # RoomPrivate
 
-RoomPrivate is an open-source, secure, end-to-end encrypted chat created by [c0dE](https://c0de.wtf) and [Júlia Klee](https://juliaklee.wtf/).
+[![Codeberg Mirror](https://img.shields.io/static/v1?style=for-the-badge&label=Codeberg%20Mirror&message=codeberg.org/urwq/RoomPrivate)](https://codeberg.org/urwq/RoomPrivate/)
+
+RoomPrivate is an open-source, secure, end-to-end encrypted chat created by [c0dE](https://c0de.wtf/) and [Júlia Klee](https://juliaklee.wtf/), which uses the Zacato protocol ([Github](https://github.com/roomprivate/RoomPrivate/tree/Zacato) [Codeberg](https://codeberg.org/urwq/RoomPrivate/src/branch/Zacato)).
 
 The project was created as a "remake" of one of c0dE's old projects, **[CSL (Chat System Legacy)](https://github.com/C0dezin/chatsystemlegacy)**. CSL was originally built with Node.js, and RoomPrivate was the remake, originally developed in TypeScript.
 
