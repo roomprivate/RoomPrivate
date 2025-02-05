@@ -1,6 +1,5 @@
 ### Versions
 
-**RPV** = RoomPrivate Version
 **CSL** = ChatSystemLegacy  
 
 We follow [Semantic Versioning 2.0.0](https://semver.org/), where each version number is structured as **MAJOR.MINOR.PATCH**:
@@ -14,7 +13,7 @@ We follow [Semantic Versioning 2.0.0](https://semver.org/), where each version n
 ### Version History
 There are some videos with incorrect versions displayed, as the Semantic versioning system wasn't implemented on the **website** to show the correct versions until 3.1.2.
 
-- **CSL**: c0dE's project that served as the base for RoomPrivate's room system. It was eventually remade into RPV1. [Showcase](https://youtube.com/shorts/yturQUrpWg0)
+- **CSL**: c0dE's project that served as the base for RoomPrivate's room system. It was eventually remade into RoomPrivate. [Showcase](https://youtube.com/shorts/yturQUrpWg0)
 - **1.0.0-alpha**: The first alpha test version of RoomPrivate, marking the transition from CSL to the new system. [Showcase](https://youtu.be/uMI_bCFlTbc)
 - **1.0.1-alpha**: Introduced bug fixes and small feature additions. [Showcase](https://youtu.be/rgCnYbPmkZM)
 - **2.0.0-alpha**: Introducing **Klee Socket**, a Rust-based socket that replaced Socket.IO, and a backend mix of TypeScript and Rust. [Showcase](https://youtu.be/8_lfL7AwnIE)
