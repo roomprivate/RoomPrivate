@@ -1,5 +1,6 @@
 # RoomPrivate
 
+[![mirror-repository](https://github.com/roomprivate/RoomPrivate/actions/workflows/codeberg.yml/badge.svg)](https://github.com/roomprivate/RoomPrivate/actions/workflows/codeberg.yml)
 [![Codeberg Mirror](https://img.shields.io/static/v1?style=for-the-badge&label=Codeberg%20Mirror&message=codeberg.org/urwq/RoomPrivate)](https://codeberg.org/urwq/RoomPrivate/)
 [![Support me on Patreon](https://img.shields.io/endpoint.svg?url=https%3A%2F%2Fshieldsio-patreon.vercel.app%2Fapi%3Fusername%3DRoomPrivate%26type%3Dpatrons&style=for-the-badge)](https://patreon.com/RoomPrivate)
 
