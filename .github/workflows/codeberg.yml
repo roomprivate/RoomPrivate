@@ -20,4 +20,4 @@ jobs:
           REMOTE: 'https://codeberg.org/urwq/RoomPrivate'
           GIT_USERNAME: c0dezin
           GIT_PASSWORD: ${{ secrets.GIT_PASSWORD }}
-          GIT_BRANCH: main
+          GIT_REF: refs/heads/main
