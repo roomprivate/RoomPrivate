@@ -1,6 +1,6 @@
 # RoomPrivate
 
-[![Codeberg Mirror](https://img.shields.io/static/v1?style=for-the-badge&label=Codeberg%20Mirror&message=codeberg.org/urwq/RoomPrivate)](https://codeberg.org/urwq/RoomPrivate/)
+[![Codeberg Mirror](https://img.shields.io/static/v1?style=for-the-badge&label=Codeberg%20Mirror&message=codeberg.org/urwq/RoomPrivate&color=2185D0)](https://codeberg.org/urwq/RoomPrivate/)
 
 RoomPrivate is an open-source, secure, end-to-end encrypted chat created by [c0dE](https://c0de.wtf/) and [Júlia Klee](https://juliaklee.wtf/), which uses the Zacato protocol (designed specifically for this project).
 
@@ -13,3 +13,11 @@ The CSL room system was known between them as "Stupid but functional" because it
 After some development, they began taking RoomPrivate more seriously and abandoned many Discord-like features (roles for example), releasing new versions. These updates ranged from improving the room system to doing a complete rewrite in Rust.
 
 There is a full video archive documenting ALL versions of RoomPrivate, including CSL. You can see more about the versions and their videos [here](https://github.com/roomprivate/room/blob/main/docs/versions.md)
+
+<a href="https://star-history.com/#roomprivate/RoomPrivate&Timeline">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=roomprivate/RoomPrivate&type=Timeline&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=roomprivate/RoomPrivate&type=Timeline" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=roomprivate/RoomPrivate&type=Timeline" />
+  </picture>
+</a>
