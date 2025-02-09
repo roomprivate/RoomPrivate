@@ -1,6 +1,6 @@
 # RoomPrivate
 
-[![Codeberg Mirror](https://img.shields.io/static/v1?style=for-the-badge&label=Codeberg%20Mirror&message=codeberg.org/urwq/RoomPrivate)](https://codeberg.org/urwq/RoomPrivate/)
+[![Codeberg Mirror](https://img.shields.io/static/v1?style=for-the-badge&label=Codeberg%20Mirror&message=codeberg.org/urwq/RoomPrivate&color=2185D0)](https://codeberg.org/urwq/RoomPrivate/)
 
 RoomPrivate is an open-source, secure, end-to-end encrypted chat created by [c0dE](https://c0de.wtf/) and [Júlia Klee](https://juliaklee.wtf/), which uses the Zacato protocol (designed specifically for this project).
 
