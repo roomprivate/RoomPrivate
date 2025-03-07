@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.44", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 tokio-tungstenite = "0.26"
 futures-util = "0.3"
